@@ -1,191 +1,572 @@
+# -*- coding: utf-8 -*-
+"""
+Generador Flexible de Awareness / Recordación - Streamlit
 
-import io, re, json, unicodedata
+Funciona para:
+- Bancos
+- Marcas
+- Empresas
+- Productos
+- Países
+- Cualquier entidad configurable por el usuario
+
+Ejecutar localmente:
+    streamlit run streamlit_awareness_generico.py
+"""
+
+import io
+import re
+import json
+import unicodedata
+from typing import Dict, List, Optional, Tuple
+
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-BANKS=['Banco Agrario','Bancolombia','Davivienda','Banco de Bogotá','BBVA','Banco Caja Social','Banco Popular','Bancamía','Banco de Occidente','Banco Mundo Mujer']
-BANK_ALIASES={'Banco Agrario':['banco agrario','agrario'],'Bancolombia':['bancolombia'],'Davivienda':['davivienda'],'Banco de Bogotá':['banco de bogota','banco de bogotá','banco bogota','banco bogotá'],'BBVA':['bbva','bbvva','bvva','bbwa','bva'],'Banco Caja Social':['banco caja social','caja social'],'Banco Popular':['banco popular','popular'],'Bancamía':['bancamia','bancamía','banca mia','banca mía'],'Banco de Occidente':['banco de occidente','occidente'],'Banco Mundo Mujer':['banco mundo mujer','mundo mujer','banco de la mujer','fundacion de la mujer','fundación de la mujer']}
-BANK_NORMALIZATIONS=[{'pattern':r'(?i)Banco\s+de\s+Bogota','replacement':'Banco de Bogotá'},{'pattern':r'(?i)(?<!Banco\s)Caja\s+Social','replacement':'Banco Caja Social'},{'pattern':r'(?i)Bancamia','replacement':'Bancamía'}]
-NEG={'','0','no','nan','none','false','ninguno','ninguna','no se','no sé','no recuerdo','no aplica'}
 
-def norm(x):
-    if pd.isna(x): return ''
-    x=str(x).strip().lower(); x=unicodedata.normalize('NFKD',x).encode('ascii','ignore').decode('ascii')
-    return re.sub(r'\s+',' ',re.sub(r'[^a-z0-9\s]+',' ',x)).strip()
+# ============================================================
+# CONFIGURACIÓN PREDEFINIDA PARA BANCOS
+# ============================================================
 
-def find_col(df,prefix):
-    p=norm(prefix)
-    for c in df.columns:
-        if norm(c).startswith(p): return c
-    return None
+BANKS = [
+    "Banco Agrario",
+    "Bancolombia",
+    "Davivienda",
+    "Banco de Bogotá",
+    "BBVA",
+    "Banco Caja Social",
+    "Banco Popular",
+    "Bancamía",
+    "Banco de Occidente",
+    "Banco Mundo Mujer",
+]
 
-def find_cols(df,txt):
-    return [c for p in [x.strip() for x in txt.splitlines() if x.strip()] for c in [find_col(df,p)] if c]
+BANK_ALIASES = {
+    "Banco Agrario": ["banco agrario", "banco agrario de colombia", "agrario"],
+    "Bancolombia": ["bancolombia"],
+    # Regla acordada: Davibank / DaviBank NO se cuenta como Davivienda.
+    "Davivienda": ["davivienda"],
+    "Banco de Bogotá": ["banco de bogota", "banco de bogotá", "banco bogota", "banco bogotá"],
+    "BBVA": ["bbva", "bbvva", "bvva", "bbwa", "bva", "bvvwa"],
+    "Banco Caja Social": ["banco caja social", "caja social", "cajas social", "caja sosial"],
+    "Banco Popular": ["banco popular", "popular"],
+    "Bancamía": ["bancamia", "bancamía", "banca mia", "banca mía"],
+    "Banco de Occidente": ["banco de occidente", "occidente"],
+    "Banco Mundo Mujer": [
+        "banco mundo mujer",
+        "mundo mujer",
+        "banco de la mujer",
+        "fundacion de la mujer",
+        "fundación de la mujer",
+        "de la mujer",
+    ],
+}
 
-def clean(x,norms):
-    if pd.isna(x): return x
-    s=str(x)
-    for it in norms:
-        try: s=re.sub(it.get('pattern',''),it.get('replacement',''),s)
-        except Exception: pass
-    return s
+BANK_NORMALIZATIONS = [
+    {"pattern": r"(?i)Banco\s+de\s+Bogota", "replacement": "Banco de Bogotá"},
+    {"pattern": r"(?i)(?<!Banco\s)Caja\s+Social", "replacement": "Banco Caja Social"},
+    {"pattern": r"(?i)Bancamia", "replacement": "Bancamía"},
+]
 
-def contains(x,entity,aliases):
-    t=norm(x)
-    if t in NEG: return False
-    for a in aliases.get(entity,[entity]):
-        aa=norm(a)
-        if aa and re.search(r'(^|\s)'+re.escape(aa)+r'(\s|$)',t): return True
+NEGATIVOS = {
+    "",
+    "0",
+    "no",
+    "nan",
+    "none",
+    "false",
+    "ninguno",
+    "ninguna",
+    "no se",
+    "no sé",
+    "no recuerdo",
+    "ningun otro",
+    "ningún otro",
+    "no aplica",
+}
+
+
+# ============================================================
+# UTILIDADES DE TEXTO
+# ============================================================
+
+def norm(value) -> str:
+    """Normaliza texto para comparar sin tildes, símbolos ni mayúsculas."""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def safe_sheet_name(name: str) -> str:
+    """Excel limita nombres de hoja a 31 caracteres y no permite algunos símbolos."""
+    cleaned = re.sub(r"[\\/*?:\[\]]", " ", str(name)).strip()
+    return cleaned[:31] or "Hoja"
+
+
+def apply_normalizations(value, normalizations: List[Dict]) -> str:
+    """Aplica normalizaciones editables por el usuario."""
+    if pd.isna(value):
+        return value
+    text = str(value)
+    for item in normalizations or []:
+        pattern = item.get("pattern", "")
+        replacement = item.get("replacement", "")
+        if not pattern:
+            continue
+        try:
+            text = re.sub(pattern, replacement, text)
+        except re.error:
+            # Si el usuario escribe una regex inválida, no rompe toda la app.
+            pass
+    return text
+
+
+def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
+    """Valida si una respuesta contiene una entidad o alguno de sus alias."""
+    text = norm(value)
+    if text in NEGATIVOS:
+        return False
+
+    for alias in aliases.get(entity, [entity]):
+        alias_norm = norm(alias)
+        if alias_norm and re.search(r"(^|\s)" + re.escape(alias_norm) + r"(\s|$)", text):
+            return True
     return False
 
-def entity_from_col(col,entities):
-    t=norm(str(col).replace('\n',' '))
-    for e in entities:
-        if norm(e) in t: return e
+
+# ============================================================
+# DETECCIÓN DE COLUMNAS
+# ============================================================
+
+def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
+    """Encuentra la primera columna cuyo encabezado empieza por el prefijo indicado."""
+    prefix_norm = norm(prefix)
+    for column in df.columns:
+        if norm(column).startswith(prefix_norm):
+            return column
     return None
 
-def safe(s): return re.sub(r'[\\/*?:\[\]]',' ',str(s)).strip()[:31] or 'Hoja'
 
-def build(df, demo, cfg, entities, aliases, norms, expected):
-    tom = find_col(df, cfg['tom'])
-    esp = find_cols(df, cfg['esp'])
-    ayu = find_cols(df, cfg['ayu'])
+def prefixes_to_list(text: str) -> List[str]:
+    """Convierte un textarea en lista de prefijos, uno por línea."""
+    return [line.strip() for line in str(text).splitlines() if line.strip()]
 
-    raw = [demo.get('edad'), demo.get('departamento'), demo.get('estrato'), tom] + esp + ayu
-    raw = [c for c in raw if c]
 
-    if expected and len(raw) != expected:
+def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
+    """Encuentra columnas para varios prefijos."""
+    detected = []
+    for prefix in prefixes_to_list(prefixes_text):
+        column = find_col(df, prefix)
+        if column is not None:
+            detected.append(column)
+    return detected
+
+
+def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str]:
+    """Detecta a qué entidad corresponde una columna ayudada según el texto del encabezado."""
+    text = norm(str(column_name).replace("\n", " "))
+
+    for entity in entities:
+        if norm(entity) in text:
+            return entity
+
+    # Apoyos específicos útiles cuando el modo es Bancos.
+    if "Banco Caja Social" in entities and "caja social" in text:
+        return "Banco Caja Social"
+    if "Bancamía" in entities and "bancamia" in text:
+        return "Bancamía"
+    if "Banco de Bogotá" in entities and "banco de bogota" in text:
+        return "Banco de Bogotá"
+
+    return None
+
+
+# ============================================================
+# CÁLCULO DE AWARENESS
+# ============================================================
+
+def build_analysis(
+    df: pd.DataFrame,
+    demo_cols: Dict[str, Optional[str]],
+    cfg: Dict,
+    entities: List[str],
+    aliases: Dict[str, List[str]],
+    normalizations: List[Dict],
+    expected_raw_cols: int,
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
+    """Construye la hoja base y los indicadores TOM/Espontáneo/Ayudado."""
+    tom_col = find_col(df, cfg["tom"])
+    esp_cols = find_cols(df, cfg["esp"])
+    ayud_cols = find_cols(df, cfg["ayu"])
+
+    raw_cols = [
+        demo_cols.get("edad"),
+        demo_cols.get("departamento"),
+        demo_cols.get("estrato"),
+        tom_col,
+    ] + esp_cols + ayud_cols
+
+    raw_cols = [col for col in raw_cols if col is not None]
+
+    if expected_raw_cols and int(expected_raw_cols) > 0 and len(raw_cols) != int(expected_raw_cols):
         raise ValueError(
-            f"{cfg['name']}: se esperaban {expected} columnas crudas y se detectaron {len(raw)}"
+            f"{cfg['name']}: se esperaban {expected_raw_cols} columnas crudas y se detectaron {len(raw_cols)}. "
+            f"Columnas detectadas: {raw_cols}"
         )
 
-    if not tom or not esp or not ayu:
-        raise ValueError(f"{cfg['name']}: faltan columnas TOM/Espontáneo/Ayudado")
+    if not tom_col:
+        raise ValueError(f"{cfg['name']}: no se detectó la columna TOM.")
+    if not esp_cols:
+        raise ValueError(f"{cfg['name']}: no se detectaron columnas espontáneas.")
+    if not ayud_cols:
+        raise ValueError(f"{cfg['name']}: no se detectaron columnas ayudadas.")
 
-    rdf = df[raw].apply(lambda col: col.map(lambda x: clean(x, norms)))
-    out = rdf.copy()
-    ind = {}
+    # Compatible con pandas nuevos: NO usar applymap.
+    raw_df = df[raw_cols].apply(lambda col: col.map(lambda value: apply_normalizations(value, normalizations)))
+    output_df = raw_df.copy()
+    indicators = {}
 
-    amap = {e: None for e in entities}
+    aided_map = {entity: None for entity in entities}
+    for col in ayud_cols:
+        entity = entity_from_aided_col(col, entities)
+        if entity in aided_map:
+            aided_map[entity] = col
 
-    for c in ayu:
-        e = entity_from_col(c, entities)
-        if e:
-            amap[e] = c
+    for entity in entities:
+        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases))
 
-    for e in entities:
-        T = rdf[tom].apply(lambda x: contains(x, e, aliases))
+        espontaneo = pd.Series(False, index=df.index)
+        for col in esp_cols:
+            espontaneo = espontaneo | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
 
-        E = pd.Series(False, index=df.index)
-        for c in esp:
-            E = E | rdf[c].apply(lambda x: contains(x, e, aliases))
-
-        if amap.get(e):
-            A = rdf[amap[e]].apply(lambda x: contains(x, e, aliases))
+        aided_col = aided_map.get(entity)
+        if aided_col:
+            ayudado = raw_df[aided_col].apply(lambda value: contains_entity(value, entity, aliases))
         else:
-            
-            A = pd.Series(False, index=df.index)
+            ayudado = pd.Series(False, index=df.index)
 
-        ind[(e, 'TOM')] = T.astype(int)
-        ind[(e, 'Espontaneo')] = ((~T) & E).astype(int)
-        ind[(e, 'Ayudado')] = ((~T) & (~E) & A).astype(int)
+        indicators[(entity, "TOM")] = tom.astype(int)
+        indicators[(entity, "Espontaneo")] = ((~tom) & espontaneo).astype(int)
+        indicators[(entity, "Ayudado")] = ((~tom) & (~espontaneo) & ayudado).astype(int)
 
-        out[(e, 'TOM')] = ind[(e, 'TOM')]
-        out[(e, 'Espontaneo')] = ind[(e, 'Espontaneo')]
-        out[(e, 'Ayudado')] = ind[(e, 'Ayudado')]
+        output_df[(entity, "TOM")] = indicators[(entity, "TOM")]
+        output_df[(entity, "Espontaneo")] = indicators[(entity, "Espontaneo")]
+        output_df[(entity, "Ayudado")] = indicators[(entity, "Ayudado")]
 
-    return out, pd.DataFrame(ind), raw
+    return output_df, pd.DataFrame(indicators), raw_cols
 
-def tab(ind,df,col,val,entities):
-    m=(df[col].fillna('Sin dato')==val) if col else pd.Series(True,index=df.index); base=int(m.sum())
-    rows=[]
-    for e in entities:
-        t=int(ind[(e,'TOM')][m].sum()); s=int(ind[(e,'Espontaneo')][m].sum()); a=int(ind[(e,'Ayudado')][m].sum()); awa=t+s+a
-        rows.append({'Entidad':e,'TOM':t,'TOM %':t/base if base else 0,'Espontaneo':s,'Espontaneo %':s/base if base else 0,'Ayudado':a,'Ayudado %':a/base if base else 0,'AWA':awa,'AWA %':awa/base if base else 0})
+
+# ============================================================
+# TABLAS RESUMEN
+# ============================================================
+
+def category_table(indicators: pd.DataFrame, df: pd.DataFrame, category_col: Optional[str], category_value, entities: List[str]) -> pd.DataFrame:
+    """Tabla TOM/Espontáneo/Ayudado/AWA para una categoría."""
+    if category_col is None:
+        mask = pd.Series(True, index=df.index)
+    else:
+        mask = df[category_col].fillna("Sin dato") == category_value
+
+    base = int(mask.sum())
+    rows = []
+
+    for entity in entities:
+        tom = int(indicators[(entity, "TOM")][mask].sum())
+        esp = int(indicators[(entity, "Espontaneo")][mask].sum())
+        ayu = int(indicators[(entity, "Ayudado")][mask].sum())
+        awa = tom + esp + ayu
+
+        rows.append(
+            {
+                "Entidad": entity,
+                "TOM": tom,
+                "TOM %": tom / base if base else 0,
+                "Espontaneo": esp,
+                "Espontaneo %": esp / base if base else 0,
+                "Ayudado": ayu,
+                "Ayudado %": ayu / base if base else 0,
+                "AWA": awa,
+                "AWA %": awa / base if base else 0,
+            }
+        )
+
     return pd.DataFrame(rows)
 
-def sections(ind,df,demo,name,entities):
-    sec=[(f'Resumen general {name}',tab(ind,df,None,None,entities))]
-    for key,label in [('sexo','sexo'),('estrato','estrato')]:
-        col=demo.get(key)
+
+def awareness_sections(indicators: pd.DataFrame, df: pd.DataFrame, demo_cols: Dict, analysis_name: str, entities: List[str]):
+    sections = [(f"Resumen general {analysis_name}", category_table(indicators, df, None, None, entities))]
+
+    sexo_col = demo_cols.get("sexo")
+    if sexo_col:
+        for value in pd.Series(df[sexo_col].fillna("Sin dato")).drop_duplicates():
+            sections.append((f"Detalle por sexo - {value}", category_table(indicators, df, sexo_col, value, entities)))
+
+    estrato_col = demo_cols.get("estrato")
+    if estrato_col:
+        for value in pd.Series(df[estrato_col].fillna("Sin dato")).drop_duplicates():
+            sections.append((f"Detalle por estrato - {value}", category_table(indicators, df, estrato_col, value, entities)))
+
+    return sections
+
+
+def department_sections(indicators: pd.DataFrame, df: pd.DataFrame, demo_cols: Dict, entities: List[str]):
+    dept_col = demo_cols.get("departamento")
+    if not dept_col:
+        return [("Sin departamento detectado", pd.DataFrame())]
+
+    sections = []
+    for value in pd.Series(df[dept_col].fillna("Sin dato")).drop_duplicates():
+        sections.append((str(value), category_table(indicators, df, dept_col, value, entities)))
+    return sections
+
+
+def demographic_sections(df: pd.DataFrame, demo_cols: Dict):
+    sections = [("Base", pd.DataFrame({"Indicador": ["Total encuestas procesadas"], "Valor": [len(df)]}))]
+
+    for key, label in [
+        ("sexo", "Sexo"),
+        ("edad", "Edad"),
+        ("departamento", "Departamento"),
+        ("estrato", "Estrato"),
+        ("ingreso", "Ingreso"),
+    ]:
+        col = demo_cols.get(key)
         if col:
-            for v in pd.Series(df[col].fillna('Sin dato')).drop_duplicates(): sec.append((f'Detalle por {label} - {v}',tab(ind,df,col,v,entities)))
-    return sec
+            table = df[col].fillna("Sin dato").value_counts().rename_axis(label).reset_index(name="Cantidad")
+            table["%"] = table["Cantidad"] / len(df) if len(df) else 0
+            sections.append((f"Demográfico - {label}", table))
 
-def dept_sections(ind,df,demo,entities):
-    col=demo.get('departamento')
-    return [] if not col else [(str(v),tab(ind,df,col,v,entities)) for v in pd.Series(df[col].fillna('Sin dato')).drop_duplicates()]
+    if demo_cols.get("departamento") and demo_cols.get("sexo"):
+        cross = pd.crosstab(
+            df[demo_cols["departamento"]].fillna("Sin dato"),
+            df[demo_cols["sexo"]].fillna("Sin dato"),
+        )
+        cross["Total"] = cross.sum(axis=1)
+        cross = cross.reset_index().rename(columns={demo_cols["departamento"]: "Departamento"})
+        sections.append(("Participación Sexo por Departamento", cross))
 
-def demo_sections(df,demo):
-    out=[('Base',pd.DataFrame({'Indicador':['Total encuestas procesadas'],'Valor':[len(df)]}))]
-    for k,l in [('sexo','Sexo'),('edad','Edad'),('departamento','Departamento'),('estrato','Estrato'),('ingreso','Ingreso')]:
-        col=demo.get(k)
-        if col:
-            t=df[col].fillna('Sin dato').value_counts().rename_axis(l).reset_index(name='Cantidad'); t['%']=t['Cantidad']/len(df)
-            out.append((f'Demográfico - {l}',t))
-    return out
+    return sections
 
-def style(ws):
-    thin=Side(style='thin',color='BFBFBF'); border=Border(left=thin,right=thin,top=thin,bottom=thin)
+
+# ============================================================
+# ESCRITURA EXCEL
+# ============================================================
+
+def style_sheet(ws):
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
     for row in ws.iter_rows():
-        for cell in row: cell.border=border; cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    for c in range(1,ws.max_column+1): ws.column_dimensions[get_column_letter(c)].width=18
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-def write_sections(wb,name,secs):
-    ws=wb.create_sheet(safe(name)); r=1; tf=PatternFill('solid',fgColor='C6E0B4'); hf=PatternFill('solid',fgColor='4472C4')
-    for title,df in secs:
-        ws.cell(r,1).value=title; ws.cell(r,1).fill=tf; ws.cell(r,1).font=Font(bold=True); r+=1
-        for c,col in enumerate(df.columns,1): ws.cell(r,c).value=col; ws.cell(r,c).fill=hf; ws.cell(r,c).font=Font(bold=True,color='FFFFFF')
-        r+=1
-        for rec in df.itertuples(index=False):
-            for c,val in enumerate(rec,1):
-                ws.cell(r,c).value=val
-                if df.columns[c-1].endswith('%'): ws.cell(r,c).number_format='0%'
-            r+=1
-        r+=2
-    style(ws)
+    for col_idx in range(1, ws.max_column + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 18
 
-def write_main(wb,name,out,raw,entities):
-    ws=wb.create_sheet(safe(name)); cols=list(out.columns)
-    for c,col in enumerate(cols,1): ws.cell(1,c).value=str(col)
-    for r,row in enumerate(out.itertuples(index=False),2):
-        for c,val in enumerate(row,1): ws.cell(r,c).value=val
-    style(ws)
 
-def make_excel(df,demo,cfg1,cfg2,entities,aliases,norms,expected):
-    out1,ind1,raw1=build(df,demo,cfg1,entities,aliases,norms,expected); out2,ind2,raw2=build(df,demo,cfg2,entities,aliases,norms,expected)
-    wb=Workbook(); wb.remove(wb.active)
-    write_main(wb,cfg1['name'],out1,raw1,entities); write_main(wb,cfg2['name'],out2,raw2,entities)
-    write_sections(wb,'Resumen Demográficos',demo_sections(df,demo)); write_sections(wb,f"Resumen {cfg1['name']}",sections(ind1,df,demo,cfg1['name'],entities)); write_sections(wb,f"Resumen {cfg2['name']}",sections(ind2,df,demo,cfg2['name'],entities))
-    write_sections(wb,f"Deptos {cfg1['name']}",dept_sections(ind1,df,demo,entities)); write_sections(wb,f"Deptos {cfg2['name']}",dept_sections(ind2,df,demo,entities))
-    bio=io.BytesIO(); wb.save(bio); return bio.getvalue()
+def write_main_sheet(wb: Workbook, sheet_name: str, output_df: pd.DataFrame):
+    ws = wb.create_sheet(safe_sheet_name(sheet_name))
 
-st.set_page_config(page_title='Awareness flexible',layout='wide'); st.title('Generador flexible de Awareness / Recordación')
-mode=st.sidebar.radio('Tipo de estudio',['Bancos','Personalizado'])
-upload=st.sidebar.file_uploader('Archivo base .xlsx',type='xlsx'); rows=st.sidebar.number_input('Filas a evaluar (0=todas)',0,step=50); expected=st.sidebar.number_input('Columnas crudas esperadas (0=no validar)',0,value=17)
-ents_default=BANKS if mode=='Bancos' else ['Entidad 1','Entidad 2','Entidad 3']; aliases_default=BANK_ALIASES if mode=='Bancos' else {'Entidad 1':['entidad 1'],'Entidad 2':['entidad 2'],'Entidad 3':['entidad 3']}; norms_default=BANK_NORMALIZATIONS if mode=='Bancos' else []
-with st.expander('Entidades, alias y normalizaciones',expanded=mode=='Personalizado'):
-    ents_txt=st.text_area('Entidades, una por línea','\n'.join(ents_default)); aliases_txt=st.text_area('Alias/condiciones JSON',json.dumps(aliases_default,ensure_ascii=False,indent=2),height=260); norms_txt=st.text_area('Normalizaciones JSON',json.dumps(norms_default,ensure_ascii=False,indent=2),height=150)
-entities=[x.strip() for x in ents_txt.splitlines() if x.strip()]; aliases=json.loads(aliases_txt); norms=json.loads(norms_txt)
-with st.expander('Preguntas y demográficos'):
-    c1,c2,c3=st.columns(3)
-    with c1:
-        sexo=st.text_input('Sexo','F1 '); edad=st.text_input('Edad','F2 '); depto=st.text_input('Departamento/Región/Zona','F3 '); estrato=st.text_input('Estrato/NSE/Segmento','F4 '); ingreso=st.text_input('Ingreso/Otro','F5 ')
-    with c2:
-        a1n=st.text_input('Nombre análisis 1','AWA PUB' if mode=='Bancos' else 'Awareness 1'); a1t=st.text_input('TOM análisis 1','P2 '); a1e=st.text_area('Espontáneo análisis 1','P2_1_1\nP2_1_2\nP2_1_3'); a1a=st.text_area('Ayudado análisis 1','\n'.join([f'P4_{i} ' for i in range(1,11)]))
-    with c3:
-        a2n=st.text_input('Nombre análisis 2','AWA Marca' if mode=='Bancos' else 'Awareness 2'); a2t=st.text_input('TOM análisis 2','P1 '); a2e=st.text_area('Espontáneo análisis 2','P1_1_1\nP1_1_2\nP1_1_3'); a2a=st.text_area('Ayudado análisis 2','\n'.join([f'P3_{i} ' for i in range(1,11)]))
-if not upload: st.info('Carga un archivo para iniciar.'); st.stop()
-df=pd.read_excel(upload,engine='openpyxl');
-if rows: df=df.head(int(rows)).copy()
-demo={'sexo':find_col(df,sexo),'edad':find_col(df,edad),'departamento':find_col(df,depto),'estrato':find_col(df,estrato),'ingreso':find_col(df,ingreso)}
-cfg1={'name':a1n,'tom':a1t,'esp':a1e,'ayu':a1a}; cfg2={'name':a2n,'tom':a2t,'esp':a2e,'ayu':a2a}
-st.subheader('Validación'); st.write('Demográficos detectados:',demo); st.write('Columnas TOM detectadas:',find_col(df,a1t),find_col(df,a2t))
-if st.button('Generar Excel',type='primary'):
+    for col_idx, column in enumerate(output_df.columns, start=1):
+        ws.cell(1, col_idx).value = str(column)
+        ws.cell(1, col_idx).fill = PatternFill("solid", fgColor="D9EAF7")
+        ws.cell(1, col_idx).font = Font(bold=True)
+
+    for row_idx, row in enumerate(output_df.itertuples(index=False), start=2):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row_idx, col_idx).value = value
+
+    style_sheet(ws)
+
+
+def write_sections_sheet(wb: Workbook, sheet_name: str, sections):
+    ws = wb.create_sheet(safe_sheet_name(sheet_name))
+    row_idx = 1
+
+    title_fill = PatternFill("solid", fgColor="C6E0B4")
+    header_fill = PatternFill("solid", fgColor="4472C4")
+
+    for title, df_table in sections:
+        ws.cell(row_idx, 1).value = title
+        ws.cell(row_idx, 1).fill = title_fill
+        ws.cell(row_idx, 1).font = Font(bold=True)
+        row_idx += 1
+
+        if df_table.empty:
+            ws.cell(row_idx, 1).value = "Sin datos disponibles"
+            row_idx += 3
+            continue
+
+        for col_idx, column in enumerate(df_table.columns, start=1):
+            ws.cell(row_idx, col_idx).value = column
+            ws.cell(row_idx, col_idx).fill = header_fill
+            ws.cell(row_idx, col_idx).font = Font(bold=True, color="FFFFFF")
+        row_idx += 1
+
+        for record in df_table.itertuples(index=False):
+            for col_idx, value in enumerate(record, start=1):
+                cell = ws.cell(row_idx, col_idx)
+                cell.value = value
+                if str(df_table.columns[col_idx - 1]).endswith("%"):
+                    cell.number_format = "0%"
+            row_idx += 1
+
+        row_idx += 2
+
+    style_sheet(ws)
+
+
+def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
+    output1, indicators1, _ = build_analysis(df, demo_cols, cfg1, entities, aliases, normalizations, expected_raw_cols)
+    output2, indicators2, _ = build_analysis(df, demo_cols, cfg2, entities, aliases, normalizations, expected_raw_cols)
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    write_main_sheet(wb, cfg1["name"], output1)
+    write_main_sheet(wb, cfg2["name"], output2)
+    write_sections_sheet(wb, "Resumen Demográficos", demographic_sections(df, demo_cols))
+    write_sections_sheet(wb, f"Resumen {cfg1['name']}", awareness_sections(indicators1, df, demo_cols, cfg1["name"], entities))
+    write_sections_sheet(wb, f"Resumen {cfg2['name']}", awareness_sections(indicators2, df, demo_cols, cfg2["name"], entities))
+    write_sections_sheet(wb, f"Deptos {cfg1['name']}", department_sections(indicators1, df, demo_cols, entities))
+    write_sections_sheet(wb, f"Deptos {cfg2['name']}", department_sections(indicators2, df, demo_cols, entities))
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+# ============================================================
+# INTERFAZ STREAMLIT
+# ============================================================
+
+st.set_page_config(page_title="Awareness Flexible", layout="wide")
+st.title("Generador flexible de Awareness / Recordación")
+st.caption("Funciona para bancos, marcas, empresas, productos, países u otras entidades.")
+
+with st.sidebar:
+    st.header("Configuración general")
+    mode = st.radio("Tipo de estudio", ["Bancos", "Personalizado"], index=0)
+    uploaded_file = st.file_uploader("Archivo base .xlsx", type=["xlsx"])
+    max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
+    expected_raw_cols = st.number_input("Columnas crudas esperadas (0 = no validar)", min_value=0, value=17, step=1)
+
+if mode == "Bancos":
+    default_entities = BANKS
+    default_aliases = BANK_ALIASES
+    default_normalizations = BANK_NORMALIZATIONS
+else:
+    default_entities = ["Entidad 1", "Entidad 2", "Entidad 3"]
+    default_aliases = {
+        "Entidad 1": ["entidad 1"],
+        "Entidad 2": ["entidad 2"],
+        "Entidad 3": ["entidad 3"],
+    }
+    default_normalizations = []
+
+with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
+    entities_text = st.text_area("Entidades a evaluar, una por línea", "\n".join(default_entities), height=220)
+    aliases_text = st.text_area("Alias / condiciones en JSON", json.dumps(default_aliases, ensure_ascii=False, indent=2), height=260)
+    normalizations_text = st.text_area("Normalizaciones opcionales en JSON", json.dumps(default_normalizations, ensure_ascii=False, indent=2), height=160)
+
+try:
+    aliases = json.loads(aliases_text)
+except Exception as exc:
+    st.error(f"El JSON de alias no es válido: {exc}")
+    st.stop()
+
+try:
+    normalizations = json.loads(normalizations_text)
+except Exception as exc:
+    st.error(f"El JSON de normalizaciones no es válido: {exc}")
+    st.stop()
+
+entities = [line.strip() for line in entities_text.splitlines() if line.strip()]
+
+with st.expander("2. Preguntas y demográficos", expanded=True):
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        sexo_prefix = st.text_input("Sexo", "F1 ")
+        edad_prefix = st.text_input("Edad", "F2 ")
+        departamento_prefix = st.text_input("Departamento / Región / Zona", "F3 ")
+        estrato_prefix = st.text_input("Estrato / NSE / Segmento", "F4 ")
+        ingreso_prefix = st.text_input("Ingreso / Otra variable", "F5 ")
+
+    with col2:
+        a1_name = st.text_input("Nombre análisis 1", "AWA PUB" if mode == "Bancos" else "Awareness 1")
+        a1_tom = st.text_input("TOM análisis 1", "P2 ")
+        a1_esp = st.text_area("Espontáneo análisis 1, uno por línea", "P2_1_1\nP2_1_2\nP2_1_3")
+        a1_ayu = st.text_area("Ayudado análisis 1, uno por línea", "\n".join([f"P4_{i} " for i in range(1, 11)]))
+
+    with col3:
+        a2_name = st.text_input("Nombre análisis 2", "AWA Marca" if mode == "Bancos" else "Awareness 2")
+        a2_tom = st.text_input("TOM análisis 2", "P1 ")
+        a2_esp = st.text_area("Espontáneo análisis 2, uno por línea", "P1_1_1\nP1_1_2\nP1_1_3")
+        a2_ayu = st.text_area("Ayudado análisis 2, uno por línea", "\n".join([f"P3_{i} " for i in range(1, 11)]))
+
+if uploaded_file is None:
+    st.info("Carga un archivo Excel para iniciar.")
+    st.stop()
+
+try:
+    df = pd.read_excel(uploaded_file, engine="openpyxl")
+except Exception as exc:
+    st.error(f"No se pudo leer el archivo Excel: {exc}")
+    st.stop()
+
+if max_rows and int(max_rows) > 0:
+    df = df.head(int(max_rows)).copy()
+
+demo_cols = {
+    "sexo": find_col(df, sexo_prefix),
+    "edad": find_col(df, edad_prefix),
+    "departamento": find_col(df, departamento_prefix),
+    "estrato": find_col(df, estrato_prefix),
+    "ingreso": find_col(df, ingreso_prefix),
+}
+
+cfg1 = {"name": a1_name, "tom": a1_tom, "esp": a1_esp, "ayu": a1_ayu}
+cfg2 = {"name": a2_name, "tom": a2_tom, "esp": a2_esp, "ayu": a2_ayu}
+
+st.subheader("3. Validación")
+validation_rows = []
+for key, value in demo_cols.items():
+    validation_rows.append({"Tipo": "Demográfico", "Campo": key, "Columna detectada": str(value)})
+
+for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
+    validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
+    validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
+    validation_rows.append({"Tipo": label, "Campo": "Ayudado", "Columna detectada": ", ".join(find_cols(df, cfg["ayu"]))})
+
+st.dataframe(pd.DataFrame(validation_rows), use_container_width=True)
+
+st.subheader("4. Generar archivo")
+if st.button("Generar Excel", type="primary"):
     try:
-        data=make_excel(df,demo,cfg1,cfg2,entities,aliases,norms,int(expected)); st.success('Archivo generado')
-        st.download_button('Descargar resultado',data,file_name='Resultado_Awareness_Flexible.xlsx',mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e: st.exception(e)
+        result = build_excel_bytes(
+            df=df,
+            demo_cols=demo_cols,
+            cfg1=cfg1,
+            cfg2=cfg2,
+            entities=entities,
+            aliases=aliases,
+            normalizations=normalizations,
+            expected_raw_cols=int(expected_raw_cols),
+        )
+        st.success("Archivo generado correctamente.")
+        st.download_button(
+            label="Descargar resultado",
+            data=result,
+            file_name="Resultado_Awareness_Flexible.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception as exc:
+        st.exception(exc)
