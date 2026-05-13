@@ -54,7 +54,9 @@ def build(df,demo,cfg,entities,aliases,norms,expected):
     raw=[demo.get('edad'),demo.get('departamento'),demo.get('estrato'),tom]+esp+ayu; raw=[c for c in raw if c]
     if expected and len(raw)!=expected: raise ValueError(f"{cfg['name']}: se esperaban {expected} columnas crudas y se detectaron {len(raw)}")
     if not tom or not esp or not ayu: raise ValueError(f"{cfg['name']}: faltan columnas TOM/Espontáneo/Ayudado")
-    rdf=df[raw].applymap(lambda x: clean(x,norms)); out=rdf.copy(); ind={}
+    rdf = df[raw].apply(lambda col: col.map(lambda x: clean(x, norms)))
+out = rdf.copy()
+ind = {}
     amap={e:None for e in entities}
     for c in ayu:
         e=entity_from_col(c,entities)
