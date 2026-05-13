@@ -49,25 +49,55 @@ def entity_from_col(col,entities):
 
 def safe(s): return re.sub(r'[\\/*?:\[\]]',' ',str(s)).strip()[:31] or 'Hoja'
 
-def build(df,demo,cfg,entities,aliases,norms,expected):
-    tom=find_col(df,cfg['tom']); esp=find_cols(df,cfg['esp']); ayu=find_cols(df,cfg['ayu'])
-    raw=[demo.get('edad'),demo.get('departamento'),demo.get('estrato'),tom]+esp+ayu; raw=[c for c in raw if c]
-    if expected and len(raw)!=expected: raise ValueError(f"{cfg['name']}: se esperaban {expected} columnas crudas y se detectaron {len(raw)}")
-    if not tom or not esp or not ayu: raise ValueError(f"{cfg['name']}: faltan columnas TOM/Espontáneo/Ayudado")
+def build(df, demo, cfg, entities, aliases, norms, expected):
+    tom = find_col(df, cfg['tom'])
+    esp = find_cols(df, cfg['esp'])
+    ayu = find_cols(df, cfg['ayu'])
+
+    raw = [demo.get('edad'), demo.get('departamento'), demo.get('estrato'), tom] + esp + ayu
+    raw = [c for c in raw if c]
+
+    if expected and len(raw) != expected:
+        raise ValueError(
+            f"{cfg['name']}: se esperaban {expected} columnas crudas y se detectaron {len(raw)}"
+        )
+
+    if not tom or not esp or not ayu:
+        raise ValueError(f"{cfg['name']}: faltan columnas TOM/Espontáneo/Ayudado")
+
     rdf = df[raw].apply(lambda col: col.map(lambda x: clean(x, norms)))
-out = rdf.copy()
-ind = {}
-    amap={e:None for e in entities}
+    out = rdf.copy()
+    ind = {}
+
+    amap = {e: None for e in entities}
+
     for c in ayu:
-        e=entity_from_col(c,entities)
-        if e: amap[e]=c
+        e = entity_from_col(c, entities)
+        if e:
+            amap[e] = c
+
     for e in entities:
-        T=rdf[tom].apply(lambda x: contains(x,e,aliases)); E=pd.Series(False,index=df.index)
-        for c in esp: E=E|rdf[c].apply(lambda x: contains(x,e,aliases))
-        A=rdf[amap[e]].apply(lambda x: contains(x,e,aliases)) if amap.get(e) else pd.Series(False,index=df.index)
-        ind[(e,'TOM')]=T.astype(int); ind[(e,'Espontaneo')]=((~T)&E).astype(int); ind[(e,'Ayudado')]=((~T)&(~E)&A).astype(int)
-        out[(e,'TOM')]=ind[(e,'TOM')]; out[(e,'Espontaneo')]=ind[(e,'Espontaneo')]; out[(e,'Ayudado')]=ind[(e,'Ayudado')]
-    return out,pd.DataFrame(ind),raw
+        T = rdf[tom].apply(lambda x: contains(x, e, aliases))
+
+        E = pd.Series(False, index=df.index)
+        for c in esp:
+            E = E | rdf[c].apply(lambda x: contains(x, e, aliases))
+
+        if amap.get(e):
+            A = rdf[amap[e]].apply(lambda x: contains(x, e, aliases))
+        else:
+            
+            A = pd.Series(False, index=df.index)
+
+        ind[(e, 'TOM')] = T.astype(int)
+        ind[(e, 'Espontaneo')] = ((~T) & E).astype(int)
+        ind[(e, 'Ayudado')] = ((~T) & (~E) & A).astype(int)
+
+        out[(e, 'TOM')] = ind[(e, 'TOM')]
+        out[(e, 'Espontaneo')] = ind[(e, 'Espontaneo')]
+        out[(e, 'Ayudado')] = ind[(e, 'Ayudado')]
+
+    return out, pd.DataFrame(ind), raw
 
 def tab(ind,df,col,val,entities):
     m=(df[col].fillna('Sin dato')==val) if col else pd.Series(True,index=df.index); base=int(m.sum())
