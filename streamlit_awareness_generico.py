@@ -47,7 +47,6 @@ BANKS = [
 BANK_ALIASES = {
     "Banco Agrario": ["banco agrario", "banco agrario de colombia", "agrario"],
     "Bancolombia": ["bancolombia"],
-    # Regla acordada: Davibank / DaviBank NO se cuenta como Davivienda.
     "Davivienda": ["davivienda"],
     "Banco de Bogotá": ["banco de bogota", "banco de bogotá", "banco bogota", "banco bogotá"],
     "BBVA": ["bbva", "bbvva", "bvva", "bbwa", "bva", "bvvwa"],
@@ -122,7 +121,6 @@ def apply_normalizations(value, normalizations: List[Dict]) -> str:
         try:
             text = re.sub(pattern, replacement, text)
         except re.error:
-            # Si el usuario escribe una regex inválida, no rompe toda la app.
             pass
     return text
 
@@ -180,7 +178,6 @@ def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str
         if norm(entity) in text:
             return entity
 
-    # Apoyos específicos útiles cuando el modo es Bancos.
     if "Banco Caja Social" in entities and "caja social" in text:
         return "Banco Caja Social"
     if "Bancamía" in entities and "bancamia" in text:
@@ -209,7 +206,6 @@ def build_analysis(
     esp_cols = find_cols(df, cfg["esp"])
     ayud_cols = find_cols(df, cfg["ayu"])
 
-    # CORRECCIÓN: Se incluyen todas las demográficas mapeadas para que el conteo total sea exacto
     raw_cols = [
         demo_cols.get("sexo"),
         demo_cols.get("edad"),
@@ -234,7 +230,6 @@ def build_analysis(
     if not ayud_cols:
         raise ValueError(f"{cfg['name']}: no se detectaron columnas ayudadas.")
 
-    # Compatible con pandas nuevos: NO usar applymap.
     raw_df = df[raw_cols].apply(lambda col: col.map(lambda value: apply_normalizations(value, normalizations)))
     output_df = raw_df.copy()
     indicators = {}
@@ -252,11 +247,27 @@ def build_analysis(
         for col in esp_cols:
             espontaneo = espontaneo | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
 
+        # --- CORRECCIÓN CRÍTICA PARA AYUDADO ---
         aided_col = aided_map.get(entity)
-        if aided_col:
-            ayudado = raw_df[aided_col].apply(lambda value: contains_entity(value, entity, aliases))
+        if sided_col := aided_col:
+            # Caso A: El nombre de la entidad está mapeado directamente en la cabecera de la columna
+            def check_aided_value(value, ent, als):
+                if pd.isna(value):
+                    return False
+                v_str = str(value).strip().lower()
+                # Acepta indicadores afirmativos típicos de estructuras binarias/matrices
+                if v_str in ["1", "si", "sí", "x", "seleccionado", "seleccionada", "true"]:
+                    return True
+                return contains_entity(value, ent, als)
+            
+            ayudado = raw_df[sided_col].apply(lambda value: check_aided_value(value, entity, aliases))
         else:
+            # Caso B: Las columnas son genéricas (P2.1, P2.2...) y contienen los nombres de los bancos en texto.
+            # Se busca la entidad en todas las columnas designadas de ayudado (igual que en espontáneo).
             ayudado = pd.Series(False, index=df.index)
+            for col in ayud_cols:
+                ayudado = ayudado | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
+        # ----------------------------------------
 
         indicators[(entity, "TOM")] = tom.astype(int)
         indicators[(entity, "Espontaneo")] = ((~tom) & espontaneo).astype(int)
@@ -274,7 +285,6 @@ def build_analysis(
 # ============================================================
 
 def category_table(indicators: pd.DataFrame, df: pd.DataFrame, category_col: Optional[str], category_value, entities: List[str]) -> pd.DataFrame:
-    """Tabla TOM/Espontáneo/Ayudado/AWA para una categoría."""
     if category_col is None:
         mask = pd.Series(True, index=df.index)
     else:
@@ -431,7 +441,6 @@ def write_sections_sheet(wb: Workbook, sheet_name: str, sections):
 
 
 def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
-    # Validar dinámicamente qué análisis están activos (diferentes de '0' o vacíos)
     run_1 = cfg1["tom"].strip() not in ["0", ""]
     run_2 = cfg2["tom"].strip() not in ["0", ""]
 
@@ -441,7 +450,6 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
     wb = Workbook()
     wb.remove(wb.active)
 
-    # Siempre escribir el resumen de variables demográficas
     write_sections_sheet(wb, "Resumen Demográficos", demographic_sections(df, demo_cols))
 
     if run_1:
