@@ -147,6 +147,8 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
     """Encuentra la primera columna cuyo encabezado empieza por el prefijo indicado."""
     prefix_norm = norm(prefix)
+    if not prefix_norm or prefix_norm == "0":
+        return None
     for column in df.columns:
         if norm(column).startswith(prefix_norm):
             return column
@@ -162,6 +164,8 @@ def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     """Encuentra columnas para varios prefijos."""
     detected = []
     for prefix in prefixes_to_list(prefixes_text):
+        if prefix.strip() == "0":
+            continue
         column = find_col(df, prefix)
         if column is not None:
             detected.append(column)
@@ -424,19 +428,30 @@ def write_sections_sheet(wb: Workbook, sheet_name: str, sections):
 
 
 def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
-    output1, indicators1, _ = build_analysis(df, demo_cols, cfg1, entities, aliases, normalizations, expected_raw_cols)
-    output2, indicators2, _ = build_analysis(df, demo_cols, cfg2, entities, aliases, normalizations, expected_raw_cols)
+    # Validar dinámicamente qué análisis están activos (diferentes de '0' o vacíos)
+    run_1 = cfg1["tom"].strip() not in ["0", ""]
+    run_2 = cfg2["tom"].strip() not in ["0", ""]
+
+    if not run_1 and not run_2:
+        raise ValueError("Debe configurar al menos un análisis válido (TOM diferente de 0 o vacío).")
 
     wb = Workbook()
     wb.remove(wb.active)
 
-    write_main_sheet(wb, cfg1["name"], output1)
-    write_main_sheet(wb, cfg2["name"], output2)
+    # Siempre escribir el resumen de variables demográficas
     write_sections_sheet(wb, "Resumen Demográficos", demographic_sections(df, demo_cols))
-    write_sections_sheet(wb, f"Resumen {cfg1['name']}", awareness_sections(indicators1, df, demo_cols, cfg1["name"], entities))
-    write_sections_sheet(wb, f"Resumen {cfg2['name']}", awareness_sections(indicators2, df, demo_cols, cfg2["name"], entities))
-    write_sections_sheet(wb, f"Deptos {cfg1['name']}", department_sections(indicators1, df, demo_cols, entities))
-    write_sections_sheet(wb, f"Deptos {cfg2['name']}", department_sections(indicators2, df, demo_cols, entities))
+
+    if run_1:
+        output1, indicators1, _ = build_analysis(df, demo_cols, cfg1, entities, aliases, normalizations, expected_raw_cols)
+        write_main_sheet(wb, cfg1["name"], output1)
+        write_sections_sheet(wb, f"Resumen {cfg1['name']}", awareness_sections(indicators1, df, demo_cols, cfg1["name"], entities))
+        write_sections_sheet(wb, f"Deptos {cfg1['name']}", department_sections(indicators1, df, demo_cols, entities))
+
+    if run_2:
+        output2, indicators2, _ = build_analysis(df, demo_cols, cfg2, entities, aliases, normalizations, expected_raw_cols)
+        write_main_sheet(wb, cfg2["name"], output2)
+        write_sections_sheet(wb, f"Resumen {cfg2['name']}", awareness_sections(indicators2, df, demo_cols, cfg2["name"], entities))
+        write_sections_sheet(wb, f"Deptos {cfg2['name']}", department_sections(indicators2, df, demo_cols, entities))
 
     output = io.BytesIO()
     wb.save(output)
