@@ -209,13 +209,10 @@ def build_analysis(
     esp_cols = find_cols(df, cfg["esp"])
     ayud_cols = find_cols(df, cfg["ayu"])
 
-    # CORRECCIÓN: Se incluyen todas las demográficas mapeadas para que el conteo total sea exacto
     raw_cols = [
-        demo_cols.get("sexo"),
         demo_cols.get("edad"),
         demo_cols.get("departamento"),
         demo_cols.get("estrato"),
-        demo_cols.get("ingreso"),
         tom_col,
     ] + esp_cols + ayud_cols
 
@@ -514,21 +511,21 @@ with st.expander("2. Preguntas y demográficos", expanded=True):
     with col1:
         sexo_prefix = st.text_input("Sexo", "F1 ")
         edad_prefix = st.text_input("Edad", "F2 ")
-        departamento_prefix = st.text_input("Departamento / Región / Zona", "F4 ")
-        estrato_prefix = st.text_input("Estrato / NSE / Segmento", "F3 ")
-        ingreso_prefix = st.text_input("Ingreso / Otra variable", "0")
+        departamento_prefix = st.text_input("Departamento / Región / Zona", "F3 ")
+        estrato_prefix = st.text_input("Estrato / NSE / Segmento", "F4 ")
+        ingreso_prefix = st.text_input("Ingreso / Otra variable", "F5 ")
 
     with col2:
         a1_name = st.text_input("Nombre análisis 1", "AWA PUB" if mode == "Bancos" else "Awareness 1")
-        a1_tom = st.text_input("TOM análisis 1", "0")
-        a1_esp = st.text_area("Espontáneo análisis 1, uno por línea", "0")
-        a1_ayu = st.text_area("Ayudado análisis 1, uno por línea", "0")
+        a1_tom = st.text_input("TOM análisis 1", "P2 ")
+        a1_esp = st.text_area("Espontáneo análisis 1, uno por línea", "P2_1_1\nP2_1_2\nP2_1_3")
+        a1_ayu = st.text_area("Ayudado análisis 1, uno por línea", "\n".join([f"P4_{i} " for i in range(1, 11)]))
 
     with col3:
         a2_name = st.text_input("Nombre análisis 2", "AWA Marca" if mode == "Bancos" else "Awareness 2")
-        a2_tom = st.text_input("TOM análisis 2", "P1")
-        a2_esp = st.text_area("Espontáneo análisis 2, uno por línea", "P1A.1\nP1A.2\nP1A.3\nP1A.4\nP1A.5\nP1A.6\nP1A.7\nP1A.8\nP1A.9\nP1A.10")
-        a2_ayu = st.text_area("Ayudado análisis 2, uno por línea", "P2.1\nP2.2\nP2.3\nP2.4\nP2.5")
+        a2_tom = st.text_input("TOM análisis 2", "P1 ")
+        a2_esp = st.text_area("Espontáneo análisis 2, uno por línea", "P1_1_1\nP1_1_2\nP1_1_3")
+        a2_ayu = st.text_area("Ayudado análisis 2, uno por línea", "\n".join([f"P3_{i} " for i in range(1, 11)]))
 
 if uploaded_file is None:
     st.info("Carga un archivo Excel para iniciar.")
