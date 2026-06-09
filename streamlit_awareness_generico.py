@@ -4,7 +4,7 @@ Generador Flexible de Awareness / Recordación - Streamlit
 
 Funciona para:
 - Bancos
-- Conglomerados Financieros (Misma lógica pura de bancos, sin agrupaciones forzadas)
+- Conglomerados Financieros (Nueva Base con Limpieza Avanzada de Marcas)
 - Marcas / Empresas / Productos / Personalizado
 """
 
@@ -51,46 +51,41 @@ BANK_NORMALIZATIONS = [
     {"pattern": r"(?i).*Bancamia.*", "replacement": "Bancamía"},
 ]
 
-# --- PRESET 2: CONGLOMERADOS FINANCIEROS (Puros, separados y fieles a la respuesta) ---
+# --- PRESET 2: CONGLOMERADOS FINANCIEROS Y MARCAS GENERALES ---
 CONGLOMERATES = [
-    "Grupo Bancolombia",
-    "Bancolombia",
-    "Grupo exito",
-    "Grupo Ecopetrol",
-    "Grupo nutresa",
-    "GNB Sudameris",
-    "Conglomerado Credicorp capital",
-    "Conglomerado Skandia",
-    "Conglomerado BBVA",
-    "Grupo Aval"
+    "Conglomerado BBVA", "Grupo cooperativo Coomeva", "Fundación Grupo Social",
+    "Grupo Bolivar", "Conglomerado financiero Sura-Bancolombia", "Grupo Aval",
+    "GNB Sudameris", "Conglomerado Credicorp capital"
 ]
 
 CONGLOMERATE_ALIASES = {
-    "Grupo Bancolombia": ["grupo bancolombia", "conglomerado sura bancolombia"],
-    "Bancolombia": ["bancolombia", "banco colombia"],
-    "Grupo exito": ["grupo exito", "grupo éxito", "exito", "éxito"],
-    "Grupo Ecopetrol": ["grupo ecopetrol", "ecopetrol"],
-    "Grupo nutresa": ["grupo nutresa", "nutresa"],
-    "GNB Sudameris": ["gnb sudameris", "sudameris", "gnb"],
-    "Conglomerado Credicorp capital": ["conglomerado credicorp capital", "credicorp", "credicorp capital"],
-    "Conglomerado Skandia": ["conglomerado skandia", "skandia", "old mutual"],
     "Conglomerado BBVA": ["conglomerado bbva", "bbva"],
-    "Grupo Aval": ["grupo aval", "aval"]
+    "Grupo cooperativo Coomeva": ["grupo cooperativo coomeva", "coomeva"],
+    "Fundación Grupo Social": ["fundacion grupo social", "grupo social"],
+    "Grupo Bolivar": ["grupo bolivar", "bolivar"],
+    "Conglomerado financiero Sura-Bancolombia": ["conglomerado financiero sura bancolombia", "sura", "bancolombia"],
+    "Grupo Aval": ["grupo aval", "aval"],
+    "GNB Sudameris": ["gnb sudameris", "sudameris", "gnb"],
+    "Conglomerado Credicorp capital": ["conglomerado credicorp capital", "credicorp"]
 }
 
 CONGLOMERATE_NORMALIZATIONS = [
-    # Respeta la separación estricta: Si dice Grupo es Grupo, si dice solo Bancolombia es Bancolombia
+    # --- Conglomerados Financieros ---
     {"pattern": r"(?i).*grupo\s+bancolombia.*", "replacement": "Grupo Bancolombia"},
     {"pattern": r"(?i).*(?<!grupo\s)bancolombia.*", "replacement": "Bancolombia"},
     {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo exito"},
     {"pattern": r"(?i).*ecopetrol.*", "replacement": "Grupo Ecopetrol"},
     {"pattern": r"(?i).*nutresa.*", "replacement": "Grupo nutresa"},
+    {"pattern": r"(?i).*(sudameris|gnb).*", "replacement": "GNB Sudameris"},
+    {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"},
+    {"pattern": r"(?i).*skandia.*", "replacement": "Conglomerado Skandia"},
     
-    # Typos de consumo masivo para mantener limpia la tabla
+    # --- Homologación de Marcas de Consumo / Retail / Typos ---
     {"pattern": r"(?i).*(adidas|afidas|asidas|adida).*", "replacement": "Adidas"},
     {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola).*", "replacement": "Coca-Cola"},
     {"pattern": r"(?i).*(av\s+villas|avvillas).*", "replacement": "Banco AV Villas"},
-    {"pattern": r"(?i).*(nestle|nestlé).*", "replacement": "Nestlé"}
+    {"pattern": r"(?i).*(nestle|nestlé).*", "replacement": "Nestlé"},
+    {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
 ]
 
 # Modificable si necesitas expandir respuestas nulas
@@ -189,6 +184,7 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
 
     raw_df = df[raw_cols].copy()
     
+    # Nota: Para las matrices crudas de salida conservamos el procesamiento por celda
     output_df = raw_df.copy()
     indicators = {}
 
@@ -228,7 +224,7 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
     return output_df, pd.DataFrame(indicators), raw_cols
 
 
-# ⚡ FUNCIÓN DE FRECUENCIAS: Desglose multi-respuesta integrado
+# ⚡ NUEVA FUNCIÓN OPTIMIZADA: Desglose multi-respuesta para la tabla de frecuencias Abiertas
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
     if not tom_col:
         return pd.DataFrame()
@@ -252,9 +248,9 @@ def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dic
             # Aplicar mapeo de expresiones regulares al fragmento individual
             normalized_piece = apply_normalizations(piece, normalizations)
             
-            # Formateo estandarizado final (Para marcas que no estén en el JSON)
+            # Formateo estandarizado final
             v = str(normalized_piece).strip()
-            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco") or v.startswith("Bancolombia")):
+            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
                 v = v.title()  # Convierte "adidas" libre a "Adidas"
                 
             all_mentions.append(v)
