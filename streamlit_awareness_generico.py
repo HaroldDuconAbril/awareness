@@ -48,11 +48,28 @@ BANKS = [
 
 BANK_ALIASES = {
     "Banco Agrario": ["banco agrario", "banco agrario de colombia", "agrario"],
-    "Bancolombia": ["bancolombia", "bamcolombia", "bancoloombia", "bsncolombia", "bancooombia"],
+    "Bancolombia": [
+        "bancolombia",
+        "bamcolombia",
+        "bancoloombia",
+        "bsncolombia",
+        "bancooombia",
+    ],
     "Davivienda": ["davivienda"],
-    "Banco de Bogotá": ["banco de bogota", "banco de bogotá", "banco bogota", "banco bogotá", "bancobogota"],
+    "Banco de Bogotá": [
+        "banco de bogota",
+        "banco de bogotá",
+        "banco bogota",
+        "banco bogotá",
+        "bancobogota",
+    ],
     "BBVA": ["bbva", "bbvva", "bvva", "bbwa", "bva", "bvvwa"],
-    "Banco Caja Social": ["banco caja social", "caja social", "cajas social", "caja sosial"],
+    "Banco Caja Social": [
+        "banco caja social",
+        "caja social",
+        "cajas social",
+        "caja sosial",
+    ],
     "Banco Popular": ["banco popular", "popular"],
     "Bancamía": ["bancamia", "bancamía", "banca mia", "banca mía"],
     "Banco de Occidente": ["banco de occidente", "occidente"],
@@ -70,7 +87,10 @@ BANK_NORMALIZATIONS = [
     {"pattern": r"(?i)Banco\s+de\s+Bogota", "replacement": "Banco de Bogotá"},
     {"pattern": r"(?i)(?<!Banco\s)Caja\s+Social", "replacement": "Banco Caja Social"},
     {"pattern": r"(?i)Bancamia", "replacement": "Bancamía"},
-    {"pattern": r"(?i)Bamcolombia|Bancoloombia|Bsncolombia|Bancooombia", "replacement": "Bancolombia"},
+    {
+        "pattern": r"(?i)Bamcolombia|Bancoloombia|Bsncolombia|Bancooombia",
+        "replacement": "Bancolombia",
+    },
 ]
 
 
@@ -185,10 +205,22 @@ CONGLOMERADOS_ALIASES = {
 
 CONGLOMERADOS_NORMALIZATIONS = [
     {"pattern": r"(?i)Grupo\s+Bol[ií]var", "replacement": "Grupo Bolivar"},
-    {"pattern": r"(?i)Fundacion\s+Grupo\s+Social", "replacement": "Fundación Grupo Social"},
-    {"pattern": r"(?i)Fundacion\s+Social", "replacement": "Fundación Grupo Social"},
-    {"pattern": r"(?i)Sura\s*[- ]\s*Bancolombia", "replacement": "Sura-Bancolombia"},
-    {"pattern": r"(?i)Bamcolombia|Bancoloombia|Bsncolombia|Bancooombia", "replacement": "Bancolombia"},
+    {
+        "pattern": r"(?i)Fundacion\s+Grupo\s+Social",
+        "replacement": "Fundación Grupo Social",
+    },
+    {
+        "pattern": r"(?i)Fundacion\s+Social",
+        "replacement": "Fundación Grupo Social",
+    },
+    {
+        "pattern": r"(?i)Sura\s*[- ]\s*Bancolombia",
+        "replacement": "Sura-Bancolombia",
+    },
+    {
+        "pattern": r"(?i)Bamcolombia|Bancoloombia|Bsncolombia|Bancooombia",
+        "replacement": "Bancolombia",
+    },
     {"pattern": r"(?i)BPN\s+Paribas", "replacement": "BPN Paribas"},
     {"pattern": r"(?i)BNP\s+Paribas", "replacement": "BPN Paribas"},
 ]
@@ -283,7 +315,6 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
         if not alias_norm:
             continue
 
-        # Busca alias como palabra o frase completa.
         pattern = r"(^|\s)" + re.escape(alias_norm) + r"(\s|$)"
 
         if re.search(pattern, text):
@@ -316,10 +347,9 @@ def prefixes_to_list(text: str) -> List"""Convierte un textarea en lista de pref
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List"""
     Encuentra columnas para varios prefijos.
 
-    IMPORTANTE:
-    A diferencia de find_col(), esta función trae TODAS las columnas que empiezan
-    por cada prefijo. Esto permite que P2-P2 detecte todas las columnas ayudadas
-    de la nueva base.
+    Importante:
+    Esta función trae TODAS las columnas que empiezan por cada prefijo.
+    Así P2-P2 detecta todas las columnas ayudadas de la nueva base.
     """
     detected = []
     seen = set()
@@ -342,15 +372,12 @@ def find_cols(df: pd.DataFrame, prefixes_text: str) -> List"""
 def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional"""
     Detecta a qué entidad corresponde una columna ayudada según el texto del encabezado.
 
-    Funciona para columnas como:
+    Ejemplo:
     P2-P2. Del siguiente listado ... - Conglomerado BBVA
-    P2-P2. Del siguiente listado ... - Grupo Aval
     """
     original = str(column_name).replace("\n", " ")
     text = norm(original)
 
-    # Si el encabezado tiene un guion antes de la marca,
-    # se prioriza lo que aparece después del último guion.
     parts = re.split(r"\s-\s", original)
     last_part = norm(parts[-1]) if parts else text
 
@@ -360,7 +387,6 @@ def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional"""
         if entity_norm in text or entity_norm in last_part:
             return entity
 
-    # Reglas especiales para conglomerados.
     if "Conglomerado BBVA" in entities and "bbva" in text:
         return "Conglomerado BBVA"
 
@@ -380,7 +406,7 @@ def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional"""
 
     if "Conglomerado financiero Sura-Bancolombia" in entities and (
         "sura bancolombia" in text
-        or "sura-bancolombia" in text
+        or "sura bancolombia" in last_part
         or "bancolombia" in text
     ):
         return "Conglomerado financiero Sura-Bancolombia"
@@ -388,7 +414,9 @@ def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional"""
     if "Grupo Aval" in entities and "grupo aval" in text:
         return "Grupo Aval"
 
-    if "BPN Paribas" in entities and ("bpn paribas" in text or "bnp paribas" in text):
+    if "BPN Paribas" in entities and (
+        "bpn paribas" in text or "bnp paribas" in text
+    ):
         return "BPN Paribas"
 
     if "BTG Pactual" in entities and "btg pactual" in text:
@@ -435,8 +463,6 @@ def build_analysis(
     ] + esp_cols + ayud_cols
 
     raw_cols = [col for col in raw_cols if col is not None]
-
-    # Quitar duplicados conservando orden.
     raw_cols = list(dict.fromkeys(raw_cols))
 
     if expected_raw_cols and int(expected_raw_cols) > 0 and len(raw_cols) != int(expected_raw_cols):
@@ -461,8 +487,6 @@ def build_analysis(
     output_df = raw_df.copy()
     indicators = {}
 
-    # Mapa entidad -> columna ayudada.
-    # Para P2 de la nueva base, cada columna ya tiene la entidad en el encabezado.
     aided_map = {entity: None for entity in entities}
 
     for col in ayud_cols:
@@ -484,15 +508,6 @@ def build_analysis(
         aided_col = aided_map.get(entity)
 
         if aided_col:
-            # Caso A:
-            # La entidad está en el encabezado de la columna ayudada.
-            # El valor puede venir como:
-            # - nombre de la entidad
-            # - 1
-            # - sí
-            # - x
-            # - true
-            # - seleccionado
             def check_aided_value(value, ent, als):
                 if pd.isna(value):
                     return False
@@ -502,7 +517,7 @@ def build_analysis(
                 if v_norm in NEGATIVOS:
                     return False
 
-                if v_norm in ["1", "si", "x", "seleccionado", "seleccionada", "true"]:
+                if v_norm in ["1", "si", "sí", "x", "seleccionado", "seleccionada", "true"]:
                     return True
 
                 return contains_entity(value, ent, als)
@@ -512,9 +527,6 @@ def build_analysis(
             )
 
         else:
-            # Caso B:
-            # Columnas ayudadas genéricas, por ejemplo P2.1, P2.2, P2.3,
-            # donde el valor contiene el texto de la entidad.
             ayudado = pd.Series(False, index=df.index)
 
             for col in ayud_cols:
@@ -783,7 +795,9 @@ def build_excel_bytes(
     run_2 = cfg2["tom"].strip() not in ["0", ""]
 
     if not run_1 and not run_2:
-        raise ValueError("Debe configurar al menos un análisis válido: TOM diferente de 0 o vacío.")
+        raise ValueError(
+            "Debe configurar al menos un análisis válido: TOM diferente de 0 o vacío."
+        )
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -857,7 +871,9 @@ def build_excel_bytes(
 st.set_page_config(page_title="Awareness Flexible", layout="wide")
 
 st.title("Generador flexible de Awareness / Recordación")
-st.caption("Funciona para bancos, conglomerados financieros, marcas, empresas, productos, países u otras entidades.")
+st.caption(
+    "Funciona para bancos, conglomerados financieros, marcas, empresas, productos, países u otras entidades."
+)
 
 
 with st.sidebar:
@@ -918,7 +934,6 @@ elif mode == "Conglomerados financieros":
     default_aliases = CONGLOMERADOS_ALIASES
     default_normalizations = CONGLOMERADOS_NORMALIZATIONS
 
-    # Defaults para la nueva base.
     default_sexo = "F1 "
     default_edad = "F2a "
     default_departamento = "F4 "
@@ -967,7 +982,10 @@ else:
 # CONFIGURACIÓN DE ENTIDADES, ALIAS Y NORMALIZACIONES
 # ============================================================
 
-with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
+with st.expander(
+    "1. Entidades, alias y normalizaciones",
+    expanded=(mode == "Personalizado"),
+):
     entities_text = st.text_area(
         "Entidades a evaluar, una por línea",
         "\n".join(default_entities),
@@ -1138,8 +1156,10 @@ for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
 st.dataframe(pd.DataFrame(validation_rows), use_container_width=True)
 
 
-# Vista rápida de columnas ayudadas mapeadas a entidades.
-with st.expander("Validación avanzada: mapeo de columnas ayudadas a entidades", expanded=False):
+with st.expander(
+    "Validación avanzada: mapeo de columnas ayudadas a entidades",
+    expanded=False,
+):
     ayud_cols_preview = find_cols(df, cfg2["ayu"])
     map_rows = []
 
