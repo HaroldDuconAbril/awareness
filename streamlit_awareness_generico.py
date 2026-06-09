@@ -69,31 +69,26 @@ CONGLOMERATE_ALIASES = {
     "Conglomerado Credicorp capital": ["conglomerado credicorp capital", "credicorp"]
 }
 
-# ⚡ NUEVO: Agrupación masiva de marcas del ecosistema y errores ortográficos comunes (Typos)
 CONGLOMERATE_NORMALIZATIONS = [
     # --- Conglomerados Financieros ---
-    {"pattern": r"(?i).*(bancolombia|sura).*", "replacement": "Conglomerado financiero Sura-Bancolombia"},
-    {"pattern": r"(?i).*(aval|bogota|bogotá|occidente|popular).*", "replacement": "Grupo Aval"},
-    {"pattern": r"(?i).*bbva.*", "replacement": "Conglomerado BBVA"},
-    {"pattern": r"(?i).*(bolivar|bolívar|davivienda).*", "replacement": "Grupo Bolivar"},
-    {"pattern": r"(?i).*coomeva.*", "replacement": "Grupo cooperativo Coomeva"},
-    {"pattern": r"(?i).*(social|caja social).*", "replacement": "Fundación Grupo Social"},
+    {"pattern": r"(?i).*grupo\s+bancolombia.*", "replacement": "Grupo Bancolombia"},
+    {"pattern": r"(?i).*(?<!grupo\s)bancolombia.*", "replacement": "Bancolombia"},
+    {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo exito"},
+    {"pattern": r"(?i).*ecopetrol.*", "replacement": "Grupo Ecopetrol"},
+    {"pattern": r"(?i).*nutresa.*", "replacement": "Grupo nutresa"},
     {"pattern": r"(?i).*(sudameris|gnb).*", "replacement": "GNB Sudameris"},
     {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"},
+    {"pattern": r"(?i).*skandia.*", "replacement": "Conglomerado Skandia"},
     
     # --- Homologación de Marcas de Consumo / Retail / Typos ---
-    {"pattern": r"(?i).*(adidas|afidas|asidas|adida|adiddas).*", "replacement": "Adidas"},
-    {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola|cokacola).*", "replacement": "Coca-Cola"},
-    {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo Éxito"},
+    {"pattern": r"(?i).*(adidas|afidas|asidas|adida).*", "replacement": "Adidas"},
+    {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola).*", "replacement": "Coca-Cola"},
     {"pattern": r"(?i).*(av\s+villas|avvillas).*", "replacement": "Banco AV Villas"},
     {"pattern": r"(?i).*(nestle|nestlé).*", "replacement": "Nestlé"},
-    {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"},
-    {"pattern": r"(?i).*nequi.*", "replacement": "Nequi"},
-    {"pattern": r"(?i).*daviplata.*", "replacement": "Daviplata"},
-    {"pattern": r"(?i).*visa.*", "replacement": "Visa"},
-    {"pattern": r"(?i).*mastercard.*", "replacement": "Mastercard"}
+    {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
 ]
 
+# Modificable si necesitas expandir respuestas nulas
 NEGATIVOS = {
     "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
     "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
@@ -188,9 +183,8 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
         raise ValueError(f"Se esperaban {expected_raw_cols} columnas, pero se detectaron {len(raw_cols)}. Pon 0 en 'Columnas crudas esperadas'.")
 
     raw_df = df[raw_cols].copy()
-    for col in raw_df.columns:
-        raw_df[col] = raw_df[col].apply(lambda value: apply_normalizations(value, normalizations))
-        
+    
+    # Nota: Para las matrices crudas de salida conservamos el procesamiento por celda
     output_df = raw_df.copy()
     indicators = {}
 
@@ -230,33 +224,44 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
     return output_df, pd.DataFrame(indicators), raw_cols
 
 
-# ⚡ OPTIMIZADO: Agrupación estricta y formato limpio para la tabla de frecuencias
+# ⚡ NUEVA FUNCIÓN OPTIMIZADA: Desglose multi-respuesta para la tabla de frecuencias Abiertas
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
     if not tom_col:
         return pd.DataFrame()
     
-    # 1. Aplicar mapeo de expresiones regulares
-    cleaned_col = df[tom_col].apply(lambda x: apply_normalizations(x, normalizations))
+    all_mentions = []
     
-    # 2. Homologación ortográfica residual
-    def final_clean(val):
-        if pd.isna(val): 
-            return "Sin respuesta"
-        v = str(val).strip()
-        if v.lower() in NEGATIVOS or v == "":
-            return "Ninguno / NS-NR"
+    for row_value in df[tom_col].dropna():
+        val_str = str(row_value).strip()
+        if val_str.lower() in NEGATIVOS or val_str == "":
+            all_mentions.append("Ninguno / NS-NR")
+            continue
         
-        # Si ya se normalizó a una categoría estructurada, conservarla.
-        # Si es una marca libre, estandarizar capitalización (Ej: "nike" -> "Nike")
-        return v if (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")) else v.title()
-
-    cleaned_col = cleaned_col.apply(final_clean)
-    
-    # Generar tabla de conteo agrupada
-    freq = cleaned_col.value_counts().reset_index()
+        # Soportar respuestas múltiples separando por comas, puntos y comas, o la palabra " y "
+        pieces = re.split(r'[,;]|\s+y\s+|\s+Y\s+', val_str)
+        
+        for piece in pieces:
+            piece = piece.strip()
+            if not piece or piece.lower() in NEGATIVOS:
+                continue
+            
+            # Aplicar mapeo de expresiones regulares al fragmento individual
+            normalized_piece = apply_normalizations(piece, normalizations)
+            
+            # Formateo estandarizado final
+            v = str(normalized_piece).strip()
+            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
+                v = v.title()  # Convierte "adidas" libre a "Adidas"
+                
+            all_mentions.append(v)
+            
+    if not all_mentions:
+        return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
+        
+    # Agrupar y generar frecuencias reales desglosadas
+    freq = pd.Series(all_mentions).value_counts().reset_index()
     freq.columns = ["Marca / Categoría TOM", "Cantidad"]
     
-    # Calcular porcentajes
     total = freq["Cantidad"].sum()
     freq["%"] = freq["Cantidad"] / total if total > 0 else 0
     return freq
@@ -361,7 +366,7 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
             write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
             write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
             
-            # Frecuencias P1 con normalización robusta aplicada
+            # Frecuencias P1 con desglose de respuesta múltiple integrado
             tom_col_name = find_col(df, cfg["tom"])
             if tom_col_name:
                 freq_table = tom_frequency_table(df, tom_col_name, normalizations)
@@ -381,7 +386,7 @@ st.title("Generador flexible de Awareness / Recordación")
 
 with st.sidebar:
     st.header("Configuración general")
-    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=1) # Por defecto Conglomerados
+    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=1)
     uploaded_file = st.file_uploader("Archivo base .xlsx o .csv", type=["xlsx", "csv"])
     max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
     default_expected_cols = 17 if mode == "Bancos" else 0
