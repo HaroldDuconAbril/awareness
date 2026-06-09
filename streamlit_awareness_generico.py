@@ -4,7 +4,7 @@ Generador Flexible de Awareness / Recordación - Streamlit
 
 Funciona para:
 - Bancos
-- Conglomerados Financieros (Nueva Base)
+- Conglomerados Financieros (Nueva Base con Limpieza Avanzada de Marcas)
 - Marcas / Empresas / Productos / Personalizado
 """
 
@@ -51,7 +51,7 @@ BANK_NORMALIZATIONS = [
     {"pattern": r"(?i).*Bancamia.*", "replacement": "Bancamía"},
 ]
 
-# --- PRESET 2: CONGLOMERADOS FINANCIEROS ---
+# --- PRESET 2: CONGLOMERADOS FINANCIEROS Y MARCAS GENERALES ---
 CONGLOMERATES = [
     "Conglomerado BBVA", "Grupo cooperativo Coomeva", "Fundación Grupo Social",
     "Grupo Bolivar", "Conglomerado financiero Sura-Bancolombia", "Grupo Aval",
@@ -69,8 +69,9 @@ CONGLOMERATE_ALIASES = {
     "Conglomerado Credicorp capital": ["conglomerado credicorp capital", "credicorp"]
 }
 
-# 🔴 NUEVO: Categorización automática para las respuestas abiertas (P1)
+# ⚡ NUEVO: Agrupación masiva de marcas del ecosistema y errores ortográficos comunes (Typos)
 CONGLOMERATE_NORMALIZATIONS = [
+    # --- Conglomerados Financieros ---
     {"pattern": r"(?i).*(bancolombia|sura).*", "replacement": "Conglomerado financiero Sura-Bancolombia"},
     {"pattern": r"(?i).*(aval|bogota|bogotá|occidente|popular).*", "replacement": "Grupo Aval"},
     {"pattern": r"(?i).*bbva.*", "replacement": "Conglomerado BBVA"},
@@ -78,7 +79,19 @@ CONGLOMERATE_NORMALIZATIONS = [
     {"pattern": r"(?i).*coomeva.*", "replacement": "Grupo cooperativo Coomeva"},
     {"pattern": r"(?i).*(social|caja social).*", "replacement": "Fundación Grupo Social"},
     {"pattern": r"(?i).*(sudameris|gnb).*", "replacement": "GNB Sudameris"},
-    {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"}
+    {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"},
+    
+    # --- Homologación de Marcas de Consumo / Retail / Typos ---
+    {"pattern": r"(?i).*(adidas|afidas|asidas|adida|adiddas).*", "replacement": "Adidas"},
+    {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola|cokacola).*", "replacement": "Coca-Cola"},
+    {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo Éxito"},
+    {"pattern": r"(?i).*(av\s+villas|avvillas).*", "replacement": "Banco AV Villas"},
+    {"pattern": r"(?i).*(nestle|nestlé).*", "replacement": "Nestlé"},
+    {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"},
+    {"pattern": r"(?i).*nequi.*", "replacement": "Nequi"},
+    {"pattern": r"(?i).*daviplata.*", "replacement": "Daviplata"},
+    {"pattern": r"(?i).*visa.*", "replacement": "Visa"},
+    {"pattern": r"(?i).*mastercard.*", "replacement": "Mastercard"}
 ]
 
 NEGATIVOS = {
@@ -103,20 +116,19 @@ def safe_sheet_name(name: str) -> str:
     return cleaned[:31] or "Hoja"
 
 def apply_normalizations(value, normalizations: List[Dict]) -> str:
-    """Aplica las reglas Regex para categorizar textos."""
     if pd.isna(value):
         return value
-    text = str(value)
+    text = str(value).strip()
     for item in normalizations or []:
         pattern = item.get("pattern", "")
         replacement = item.get("replacement", "")
         if not pattern: continue
         try:
-            # Si encuentra el patrón, reemplaza todo el texto por la categoría
-            text = re.sub(pattern, replacement, text)
+            if re.search(pattern, text):
+                return replacement
         except re.error:
             pass
-    return text.strip()
+    return text
 
 def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
     text = norm(value)
@@ -175,7 +187,10 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
     if expected_raw_cols and expected_raw_cols > 0 and len(raw_cols) != expected_raw_cols:
         raise ValueError(f"Se esperaban {expected_raw_cols} columnas, pero se detectaron {len(raw_cols)}. Pon 0 en 'Columnas crudas esperadas'.")
 
-    raw_df = df[raw_cols].apply(lambda col: col.map(lambda value: apply_normalizations(value, normalizations)))
+    raw_df = df[raw_cols].copy()
+    for col in raw_df.columns:
+        raw_df[col] = raw_df[col].apply(lambda value: apply_normalizations(value, normalizations))
+        
     output_df = raw_df.copy()
     indicators = {}
 
@@ -214,22 +229,38 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
 
     return output_df, pd.DataFrame(indicators), raw_cols
 
-# 🔴 NUEVO: Función para tabular las respuestas del P1 ya categorizadas
+
+# ⚡ OPTIMIZADO: Agrupación estricta y formato limpio para la tabla de frecuencias
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
     if not tom_col:
         return pd.DataFrame()
     
-    # Aplicar categorización
+    # 1. Aplicar mapeo de expresiones regulares
     cleaned_col = df[tom_col].apply(lambda x: apply_normalizations(x, normalizations))
     
-    # Generar tabla de conteo
-    freq = cleaned_col.fillna("Sin respuesta").value_counts().reset_index()
+    # 2. Homologación ortográfica residual
+    def final_clean(val):
+        if pd.isna(val): 
+            return "Sin respuesta"
+        v = str(val).strip()
+        if v.lower() in NEGATIVOS or v == "":
+            return "Ninguno / NS-NR"
+        
+        # Si ya se normalizó a una categoría estructurada, conservarla.
+        # Si es una marca libre, estandarizar capitalización (Ej: "nike" -> "Nike")
+        return v if (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")) else v.title()
+
+    cleaned_col = cleaned_col.apply(final_clean)
+    
+    # Generar tabla de conteo agrupada
+    freq = cleaned_col.value_counts().reset_index()
     freq.columns = ["Marca / Categoría TOM", "Cantidad"]
     
     # Calcular porcentajes
     total = freq["Cantidad"].sum()
     freq["%"] = freq["Cantidad"] / total if total > 0 else 0
     return freq
+
 
 def category_table(indicators, df, category_col, category_value, entities):
     mask = pd.Series(True, index=df.index) if category_col is None else df[category_col].fillna("Sin dato") == category_value
@@ -274,7 +305,7 @@ def style_sheet(ws):
             cell.border = border
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for col_idx in range(1, ws.max_column + 1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = 18
+        ws.column_dimensions[get_column_letter(col_idx)].width = 24
 
 def write_main_sheet(wb, sheet_name, output_df):
     ws = wb.create_sheet(safe_sheet_name(sheet_name))
@@ -330,7 +361,7 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
             write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
             write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
             
-            # 🔴 NUEVO: Escribimos la pestaña de Frecuencias P1 categorizadas
+            # Frecuencias P1 con normalización robusta aplicada
             tom_col_name = find_col(df, cfg["tom"])
             if tom_col_name:
                 freq_table = tom_frequency_table(df, tom_col_name, normalizations)
@@ -350,7 +381,7 @@ st.title("Generador flexible de Awareness / Recordación")
 
 with st.sidebar:
     st.header("Configuración general")
-    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=0)
+    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=1) # Por defecto Conglomerados
     uploaded_file = st.file_uploader("Archivo base .xlsx o .csv", type=["xlsx", "csv"])
     max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
     default_expected_cols = 17 if mode == "Bancos" else 0
@@ -362,7 +393,6 @@ if mode == "Bancos":
     t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "0", "0", "0"
     t2_name, t2_tom, t2_esp, t2_ayu = "AWA Marca", "P1", "P1A.1\nP1A.2\nP1A.3", "P2.1\nP2.2\nP2.3"
 elif mode == "Conglomerados Financieros":
-    # 🔴 NUEVO: Asignamos las normalizaciones para Conglomerados
     default_entities, default_aliases, default_normalizations = CONGLOMERATES, CONGLOMERATE_ALIASES, CONGLOMERATE_NORMALIZATIONS
     def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1", "F2a", "F4", "F3", "F5"
     t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "0", "0", "0"
@@ -376,7 +406,7 @@ else:
 with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
     entities_text = st.text_area("Entidades a evaluar, una por línea", "\n".join(default_entities), height=200)
     aliases_text = st.text_area("Alias / condiciones en JSON", json.dumps(default_aliases, ensure_ascii=False, indent=2), height=220)
-    normalizations_text = st.text_area("Normalizaciones opcionales en JSON", json.dumps(default_normalizations, ensure_ascii=False, indent=2), height=120)
+    normalizations_text = st.text_area("Normalizaciones opcionales en JSON", json.dumps(default_normalizations, ensure_ascii=False, indent=2), height=250)
 
 try:
     aliases, normalizations = json.loads(aliases_text), json.loads(normalizations_text)
