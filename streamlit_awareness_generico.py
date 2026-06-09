@@ -6,9 +6,6 @@ Funciona para:
 - Bancos
 - Conglomerados Financieros (Nueva Base)
 - Marcas / Empresas / Productos / Personalizado
-
-Ejecutar localmente:
-    streamlit run streamlit_awareness_generico.py
 """
 
 import io
@@ -92,20 +89,8 @@ CONGLOMERATE_ALIASES = {
 }
 
 NEGATIVOS = {
-    "",
-    "0",
-    "no",
-    "nan",
-    "none",
-    "false",
-    "ninguno",
-    "ninguna",
-    "no se",
-    "no sé",
-    "no recuerdo",
-    "ningun otro",
-    "ningún otro",
-    "no aplica",
+    "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
+    "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
 }
 
 
@@ -122,12 +107,10 @@ def norm(value) -> str:
     text = re.sub(r"[^a-z0-9\s]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
-
 def safe_sheet_name(name: str) -> str:
     """Excel limita nombres de hoja a 31 caracteres."""
     cleaned = re.sub(r"[\\/*?:\[\]]", " ", str(name)).strip()
     return cleaned[:31] or "Hoja"
-
 
 def apply_normalizations(value, normalizations: List[Dict]) -> str:
     """Aplica normalizaciones editables por el usuario."""
@@ -145,13 +128,11 @@ def apply_normalizations(value, normalizations: List[Dict]) -> str:
             pass
     return text
 
-
 def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
     """Valida si una respuesta contiene una entidad o alguno de sus alias."""
     text = norm(value)
     if text in NEGATIVOS:
         return False
-
     for alias in aliases.get(entity, [entity]):
         alias_norm = norm(alias)
         if alias_norm and re.search(r"(^|\s)" + re.escape(alias_norm) + r"(\s|$)", text):
@@ -160,7 +141,7 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 
 
 # ============================================================
-# DETECCIÓN DE COLUMNAS
+# DETECCIÓN DE COLUMNAS (MEJORADA PARA MATRICES)
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
@@ -173,23 +154,29 @@ def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
             return column
     return None
 
-
 def prefixes_to_list(text: str) -> List[str]:
     """Convierte un textarea en lista de prefijos, uno por línea."""
     return [line.strip() for line in str(text).splitlines() if line.strip()]
 
-
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
-    """Encuentra columnas para varios prefijos."""
+    """
+    Encuentra TODAS las columnas que empiecen con alguno de los prefijos.
+    Ideal para agrupar todas las columnas de una pregunta tipo matriz (Ej: P2-P2.)
+    """
     detected = []
-    for prefix in prefixes_to_list(prefixes_text):
-        if prefix.strip() == "0":
-            continue
-        column = find_col(df, prefix)
-        if column is not None:
-            detected.append(column)
+    prefixes = [norm(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    
+    if not prefixes:
+        return detected
+        
+    for column in df.columns:
+        col_norm = norm(column)
+        # Si la columna empieza con CUALQUIERA de los prefijos en la lista
+        if any(col_norm.startswith(prefix) for prefix in prefixes):
+            if column not in detected:
+                detected.append(column)
+                
     return detected
-
 
 def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str]:
     """Detecta la entidad según el texto del encabezado."""
@@ -232,6 +219,7 @@ def build_analysis(
     if expected_raw_cols and int(expected_raw_cols) > 0 and len(raw_cols) != int(expected_raw_cols):
         raise ValueError(
             f"{cfg['name']}: se esperaban {expected_raw_cols} columnas crudas y se detectaron {len(raw_cols)}. "
+            f"Por favor coloca el número 0 en 'Columnas crudas esperadas' en la barra lateral para saltar este error.\n"
             f"Columnas detectadas: {raw_cols}"
         )
 
@@ -446,8 +434,8 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Archivo base .xlsx o .csv", type=["xlsx", "csv"])
     max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
     
-    # Ajuste dinámico de columnas esperadas según el archivo cargado
-    default_expected_cols = 17 if mode == "Bancos" else (9 if mode == "Conglomerados Financieros" else 0)
+    # 🔴 SOLUCIÓN CLAVE: Ahora para Conglomerados, el campo por defecto es 0 (Sin validación estricta)
+    default_expected_cols = 17 if mode == "Bancos" else 0
     expected_raw_cols = st.number_input("Columnas crudas esperadas (0 = no validar)", min_value=0, value=default_expected_cols, step=1)
 
 # Asignación dinámica de diccionarios y listas según la selección
@@ -540,6 +528,7 @@ for key, value in demo_cols.items():
 for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
     if cfg["tom"].strip() not in ["0", ""]:
         validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
+        # Verás cómo ahora el Espontáneo y Ayudado agrupan múltiples columnas separadas por comas.
         validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
         validation_rows.append({"Tipo": label, "Campo": "Ayudado", "Columna detectada": ", ".join(find_cols(df, cfg["ayu"]))})
 
