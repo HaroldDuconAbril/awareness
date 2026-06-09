@@ -433,7 +433,6 @@ def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional"""
 
     return None
 
-
 # ============================================================
 # CÁLCULO DE AWARENESS
 # ============================================================
