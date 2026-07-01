@@ -106,9 +106,12 @@ def norm(value) -> str:
     text = re.sub(r"[^a-z0-9\s]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
-def safe_sheet_name(name: str) -> str:
-    cleaned = re.sub(r"[\\/*?:\[\]]", " ", str(name)).strip()
-    return cleaned[:31] or "Hoja"
+def norm(value) -> str:
+    if pd.isna(value): return ""
+    text = str(value).strip().lower()
+    # Eliminamos solo lo que realmente sobra, preservamos puntos y guiones
+    text = re.sub(r"[^a-z0-9\s\.\-\?]+", " ", text) 
+    return re.sub(r"\s+", " ", text).strip()
 
 def apply_normalizations(value, normalizations: List[Dict]) -> str:
     if pd.isna(value):
