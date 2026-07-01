@@ -88,7 +88,6 @@ CONGLOMERATE_NORMALIZATIONS = [
     {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
 ]
 
-# Modificable si necesitas expandir respuestas nulas
 NEGATIVOS = {
     "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
     "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
@@ -96,14 +95,23 @@ NEGATIVOS = {
 
 
 # ============================================================
-# UTILIDADES DE TEXTO
+# UTILIDADES DE TEXTO Y LIMPIEZA
 # ============================================================
 
 def norm(value) -> str:
+    """Normaliza valores internos y celdas eliminando todo signo de puntuación."""
     if pd.isna(value): return ""
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def clean_col(value) -> str:
+    """NUEVA: Normaliza NOMBRES DE COLUMNAS respetando puntos (.) y guiones."""
+    if pd.isna(value): return ""
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    # Solo quitamos espacios extra, mantenemos todo lo demás para que P4.1 siga siendo P4.1
     return re.sub(r"\s+", " ", text).strip()
 
 def safe_sheet_name(name: str) -> str:
@@ -136,32 +144,41 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 
 
 # ============================================================
-# DETECCIÓN DE COLUMNAS (CORREGIDO)
+# DETECCIÓN DE COLUMNAS (SISTEMA NUEVO EXACTO Y FLEXIBLE)
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
-    prefix_norm = norm(prefix)
+    prefix_norm = clean_col(prefix)
     if not prefix_norm or prefix_norm == "0": return None
+    
+    # 1. Prioridad: Coincidencia exacta
     for column in df.columns:
-        col_norm = norm(column)
-        # Cambio: de startswith() a 'in' para búsqueda flexible
-        if prefix_norm in col_norm: 
-            return column
+        if clean_col(column) == prefix_norm: return column
+    # 2. Prioridad: Empieza exactamente con
+    for column in df.columns:
+        if clean_col(column).startswith(prefix_norm): return column
+    # 3. Prioridad: Contiene en cualquier parte
+    for column in df.columns:
+        if prefix_norm in clean_col(column): return column
     return None
 
 def prefixes_to_list(text: str) -> List[str]:
-    return [line.strip() for line in str(text).splitlines() if line.strip()]
+    # Permite separar tanto por saltos de línea como por comas
+    lines = str(text).replace(",", "\n").splitlines()
+    return [line.strip() for line in lines if line.strip()]
 
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     detected = []
-    prefixes = [norm(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
     if not prefixes: return detected
+    
     for column in df.columns:
-        col_norm = norm(column)
-        # Cambio: de startswith() a 'in' para búsqueda flexible
-        if any(prefix in col_norm for prefix in prefixes):
-            if column not in detected:
-                detected.append(column)
+        col_norm = clean_col(column)
+        # Búsqueda súper flexible pero precisa respetando el punto
+        for prefix in prefixes:
+            if prefix in col_norm:
+                if column not in detected:
+                    detected.append(column)
     return detected
 
 def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str]:
@@ -187,8 +204,6 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
         raise ValueError(f"Se esperaban {expected_raw_cols} columnas, pero se detectaron {len(raw_cols)}. Pon 0 en 'Columnas crudas esperadas'.")
 
     raw_df = df[raw_cols].copy()
-    
-    # Nota: Para las matrices crudas de salida conservamos el procesamiento por celda
     output_df = raw_df.copy()
     indicators = {}
 
@@ -198,7 +213,7 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
         if entity in aided_map: aided_map[entity] = col
 
     for entity in entities:
-        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases))
+        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases)) if tom_col else pd.Series(False, index=df.index)
         
         espontaneo = pd.Series(False, index=df.index)
         for col in esp_cols:
@@ -213,6 +228,7 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
                 return contains_entity(value, ent, als)
             ayudado = raw_df[aided_col].apply(lambda value: check_aided_value(value, entity, aliases))
         else:
+            # MAGIA: Esto es lo que procesa columnas unificadas con múltiples marcas adentro
             ayudado = pd.Series(False, index=df.index)
             for col in ayud_cols:
                 ayudado = ayudado | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
@@ -228,44 +244,27 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
     return output_df, pd.DataFrame(indicators), raw_cols
 
 
-# ⚡ NUEVA FUNCIÓN OPTIMIZADA: Desglose multi-respuesta para la tabla de frecuencias Abiertas
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
-    if not tom_col:
-        return pd.DataFrame()
-    
+    if not tom_col: return pd.DataFrame()
     all_mentions = []
-    
     for row_value in df[tom_col].dropna():
         val_str = str(row_value).strip()
         if val_str.lower() in NEGATIVOS or val_str == "":
             all_mentions.append("Ninguno / NS-NR")
             continue
-        
-        # Soportar respuestas múltiples separando por comas, puntos y comas, o la palabra " y "
         pieces = re.split(r'[,;]|\s+y\s+|\s+Y\s+', val_str)
-        
         for piece in pieces:
             piece = piece.strip()
-            if not piece or piece.lower() in NEGATIVOS:
-                continue
-            
-            # Aplicar mapeo de expresiones regulares al fragmento individual
+            if not piece or piece.lower() in NEGATIVOS: continue
             normalized_piece = apply_normalizations(piece, normalizations)
-            
-            # Formateo estandarizado final
             v = str(normalized_piece).strip()
             if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
-                v = v.title()  # Convierte "adidas" libre a "Adidas"
-                
+                v = v.title() 
             all_mentions.append(v)
             
-    if not all_mentions:
-        return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
-        
-    # Agrupar y generar frecuencias reales desglosadas
+    if not all_mentions: return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
     freq = pd.Series(all_mentions).value_counts().reset_index()
     freq.columns = ["Marca / Categoría TOM", "Cantidad"]
-    
     total = freq["Cantidad"].sum()
     freq["%"] = freq["Cantidad"] / total if total > 0 else 0
     return freq
@@ -370,7 +369,6 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
             write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
             write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
             
-            # Frecuencias P1 con desglose de respuesta múltiple integrado
             tom_col_name = find_col(df, cfg["tom"])
             if tom_col_name:
                 freq_table = tom_frequency_table(df, tom_col_name, normalizations)
