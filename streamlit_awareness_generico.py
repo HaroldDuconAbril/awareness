@@ -136,14 +136,17 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 
 
 # ============================================================
-# DETECCIÓN DE COLUMNAS
+# DETECCIÓN DE COLUMNAS (CORREGIDO)
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
     prefix_norm = norm(prefix)
     if not prefix_norm or prefix_norm == "0": return None
     for column in df.columns:
-        if norm(column).startswith(prefix_norm): return column
+        col_norm = norm(column)
+        # Cambio: de startswith() a 'in' para búsqueda flexible
+        if prefix_norm in col_norm: 
+            return column
     return None
 
 def prefixes_to_list(text: str) -> List[str]:
@@ -155,7 +158,8 @@ def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     if not prefixes: return detected
     for column in df.columns:
         col_norm = norm(column)
-        if any(col_norm.startswith(prefix) for prefix in prefixes):
+        # Cambio: de startswith() a 'in' para búsqueda flexible
+        if any(prefix in col_norm for prefix in prefixes):
             if column not in detected:
                 detected.append(column)
     return detected
