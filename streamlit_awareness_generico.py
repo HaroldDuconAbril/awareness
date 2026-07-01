@@ -88,6 +88,7 @@ CONGLOMERATE_NORMALIZATIONS = [
     {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
 ]
 
+# Modificable si necesitas expandir respuestas nulas
 NEGATIVOS = {
     "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
     "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
@@ -95,23 +96,14 @@ NEGATIVOS = {
 
 
 # ============================================================
-# UTILIDADES DE TEXTO Y LIMPIEZA
+# UTILIDADES DE TEXTO
 # ============================================================
 
 def norm(value) -> str:
-    """Normaliza valores internos y celdas eliminando todo signo de puntuación."""
     if pd.isna(value): return ""
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     text = re.sub(r"[^a-z0-9\s]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-def clean_col(value) -> str:
-    """NUEVA: Normaliza NOMBRES DE COLUMNAS respetando puntos (.) y guiones."""
-    if pd.isna(value): return ""
-    text = str(value).strip().lower()
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    # Solo quitamos espacios extra, mantenemos todo lo demás para que P4.1 siga siendo P4.1
     return re.sub(r"\s+", " ", text).strip()
 
 def safe_sheet_name(name: str) -> str:
@@ -144,47 +136,43 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 
 
 # ============================================================
-# DETECCIÓN DE COLUMNAS (SISTEMA NUEVO EXACTO Y FLEXIBLE)
+# DETECCIÓN DE COLUMNAS
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
-    prefix_norm = clean_col(prefix)
+    prefix_norm = norm(prefix)
     if not prefix_norm or prefix_norm == "0": return None
-    
-    # 1. Prioridad: Coincidencia exacta
     for column in df.columns:
-        if clean_col(column) == prefix_norm: return column
-    # 2. Prioridad: Empieza exactamente con
-    for column in df.columns:
-        if clean_col(column).startswith(prefix_norm): return column
-    # 3. Prioridad: Contiene en cualquier parte
-    for column in df.columns:
-        if prefix_norm in clean_col(column): return column
+        col_norm = norm(column)
+        if prefix_norm in col_norm: 
+            return column
     return None
 
 def prefixes_to_list(text: str) -> List[str]:
-    # Permite separar tanto por saltos de línea como por comas
-    lines = str(text).replace(",", "\n").splitlines()
-    return [line.strip() for line in lines if line.strip()]
+    # Soporta saltos de línea y separaciones por coma
+    cleaned_text = str(text).replace(",", "\n")
+    return [line.strip() for line in cleaned_text.splitlines() if line.strip()]
 
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     detected = []
-    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    prefixes = [norm(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
     if not prefixes: return detected
-    
     for column in df.columns:
-        col_norm = clean_col(column)
-        # Búsqueda súper flexible pero precisa respetando el punto
-        for prefix in prefixes:
-            if prefix in col_norm:
-                if column not in detected:
-                    detected.append(column)
+        col_norm = norm(column)
+        if any(prefix in col_norm for prefix in prefixes):
+            if column not in detected:
+                detected.append(column)
     return detected
 
-def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str]:
+def entity_from_aided_col(column_name: str, entities: List[str], aliases: Dict[str, List[str]]) -> Optional[str]:
     text = norm(str(column_name).replace("\n", " "))
     for entity in entities:
-        if norm(entity) in text: return entity
+        if norm(entity) in text: 
+            return entity
+        # Revisa los alias por si la columna usa la abreviatura de la marca
+        for alias in aliases.get(entity, []):
+            if norm(alias) in text:
+                return entity
     return None
 
 
@@ -209,29 +197,36 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
 
     aided_map = {entity: None for entity in entities}
     for col in ayud_cols:
-        entity = entity_from_aided_col(col, entities)
-        if entity in aided_map: aided_map[entity] = col
+        entity = entity_from_aided_col(col, entities, aliases)
+        if entity and entity in aided_map: 
+            aided_map[entity] = col
 
     for entity in entities:
-        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases)) if tom_col else pd.Series(False, index=df.index)
+        # Validación de seguridad para TOM
+        if tom_col and tom_col in raw_df.columns:
+            tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases))
+        else:
+            tom = pd.Series(False, index=df.index)
         
+        # Validación de seguridad para Espontaneo
         espontaneo = pd.Series(False, index=df.index)
         for col in esp_cols:
-            espontaneo = espontaneo | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
+            if col in raw_df.columns:
+                espontaneo = espontaneo | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
 
         aided_col = aided_map.get(entity)
-        if aided_col is not None:
+        if aided_col is not None and aided_col in raw_df.columns:
             def check_aided_value(value, ent, als):
                 if pd.isna(value): return False
                 v_str = str(value).strip().lower()
-                if v_str in ["1", "si", "sí", "x", "seleccionado", "true"] or ent.lower() in v_str: return True
+                if v_str in ["1", "si", "sí", "x", "seleccionado", "true", "yes"] or ent.lower() in v_str: return True
                 return contains_entity(value, ent, als)
             ayudado = raw_df[aided_col].apply(lambda value: check_aided_value(value, entity, aliases))
         else:
-            # MAGIA: Esto es lo que procesa columnas unificadas con múltiples marcas adentro
             ayudado = pd.Series(False, index=df.index)
             for col in ayud_cols:
-                ayudado = ayudado | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
+                if col in raw_df.columns:
+                    ayudado = ayudado | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
 
         indicators[(entity, "TOM")] = tom.astype(int)
         indicators[(entity, "Espontaneo")] = ((~tom) & espontaneo).astype(int)
@@ -245,26 +240,38 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
 
 
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
-    if not tom_col: return pd.DataFrame()
+    if not tom_col or tom_col not in df.columns:
+        return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
+    
     all_mentions = []
+    
     for row_value in df[tom_col].dropna():
         val_str = str(row_value).strip()
         if val_str.lower() in NEGATIVOS or val_str == "":
             all_mentions.append("Ninguno / NS-NR")
             continue
+        
         pieces = re.split(r'[,;]|\s+y\s+|\s+Y\s+', val_str)
+        
         for piece in pieces:
             piece = piece.strip()
-            if not piece or piece.lower() in NEGATIVOS: continue
+            if not piece or piece.lower() in NEGATIVOS:
+                continue
+            
             normalized_piece = apply_normalizations(piece, normalizations)
             v = str(normalized_piece).strip()
+            
             if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
                 v = v.title() 
+                
             all_mentions.append(v)
             
-    if not all_mentions: return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
+    if not all_mentions:
+        return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
+        
     freq = pd.Series(all_mentions).value_counts().reset_index()
     freq.columns = ["Marca / Categoría TOM", "Cantidad"]
+    
     total = freq["Cantidad"].sum()
     freq["%"] = freq["Cantidad"] / total if total > 0 else 0
     return freq
@@ -354,9 +361,12 @@ def write_sections_sheet(wb, sheet_name, sections):
     style_sheet(ws)
 
 def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
-    run_1 = cfg1["tom"].strip() not in ["0", ""]
-    run_2 = cfg2["tom"].strip() not in ["0", ""]
-    if not run_1 and not run_2: raise ValueError("Debe configurar al menos un análisis válido.")
+    # Corrección clave: Verificar si *cualquiera* de las opciones (TOM, Esp o Ayu) está siendo usada
+    run_1 = any(cfg1[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
+    run_2 = any(cfg2[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
+    
+    if not run_1 and not run_2: 
+        raise ValueError("Debe configurar al menos un análisis válido (TOM, Espontáneo o Ayudado).")
     
     wb = Workbook()
     wb.remove(wb.active)
@@ -463,7 +473,7 @@ cfg1, cfg2 = {"name": a1_name, "tom": a1_tom, "esp": a1_esp, "ayu": a1_ayu}, {"n
 st.subheader("3. Validación de Columnas")
 validation_rows = [{"Tipo": "Demográfico", "Campo": k, "Columna detectada": str(v)} for k, v in demo_cols.items()]
 for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
-    if cfg["tom"].strip() not in ["0", ""]:
+    if any(cfg[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"]):
         validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
         validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
         validation_rows.append({"Tipo": label, "Campo": "Ayudado", "Columna detectada": ", ".join(find_cols(df, cfg["ayu"]))})
