@@ -1,262 +1,482 @@
 # -*- coding: utf-8 -*-
-"""Generador Awareness Final Limpio v6
+"""
+Generador Flexible de Awareness / Recordación - Streamlit
 
-Hojas finales:
-- AWA PUB
-- AWA Marca
-- Resumen Demográficos
-- Resumen AWA PUB
-- Resumen AWA Marca
-- Deptos AWA PUB
-- Deptos AWA Marca
-
-En Resumen AWA PUB / Marca:
-- Resumen general
-- Tabla independiente por cada sexo
-- Tabla independiente por cada estrato
-
-En Deptos AWA PUB / Marca:
-- Tabla independiente por cada departamento, con TOM, Espontaneo, Ayudado y AWA.
+Funciona para:
+- Bancos
+- Conglomerados Financieros (Nueva Base con Limpieza Avanzada de Marcas)
+- Marcas / Empresas / Productos / Personalizado
 """
 
-import os, re, unicodedata
+import io
+import re
+import json
+import unicodedata
+from typing import Dict, List, Optional, Tuple
+
 import pandas as pd
+import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-BRANDS = ['Banco Agrario','Bancolombia','Davivienda','Banco de Bogotá','BBVA','Banco Caja Social','Banco Popular','Bancamía','Banco de Occidente','Banco Mundo Mujer']
-EXACT_HEADERS = {'AWA PUB': [[None, None, None, '=E512', None, None, None, 'Ayudado', None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None], ['PREGUNTAS DEMOGRAFICAS', None, None, 'TOM PUB', 'Espontaneo PUB', None, None, 'Banco Agrario', 'Bancolombia', 'Davivienda', 'Banco de Bogotá', 'BBVA', 'Banco Caja Social', 'Banco Popular', 'Bancamía', 'Banco de Occidente', 'Banco Mundo Mujer', '=+H2', None, None, '=+I2', None, None, '=+J2', None, None, '=+K2', None, None, '=+L2', None, None, '=+M2', None, None, '=+N2', None, None, '=+O2', None, None, '=+P2', None, None, '=+Q2', None, None], ['F2 ¿En qué rango de edad te encuentras? [OCULTA]', 'F3 ¿En qué departamento vives?', 'F4 ¿Según los recibos de servicios públicos de tu hogar, ¿a qué estrato perteneces?', 'P2 ¿De qué bancos has visto, escuchado o leído publicidad en el último mes?', 'P2_1_1 Además de los que ya mencionaste, ¿qué otros bancos recuerdas haber visto o escuchado en publicidad durante el último mes?', 'P2_1_2 Además de los que ya mencionaste, ¿qué otros bancos recuerdas haber visto o escuchado en publicidad durante el último mes?', 'P2_1_3 Además de los que ya mencionaste, ¿qué otros bancos recuerdas haber visto o escuchado en publicidad durante el último mes?', 'P4_1 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco Agrario', 'P4_2 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Bancolombia', 'P4_3 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Davivienda', 'P4_4 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco de Bogotá', 'P4_5 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) BBVA', 'P4_6 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco Caja Social', 'P4_7 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco Popular', 'P4_8 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Bancamía', 'P4_9 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco de Occidente', 'P4_10 Del siguiente listado de marcas de bancos, ¿de cuáles has escuchado, leído o visto publicidad en el último mes? (Recuerda que puedes marcar más de una opción) Banco Mundo Mujer', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado']], 'AWA Marca': [[None, None, None, '=E517', None, None, None, 'Ayudado', None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None], ['PREGUNTAS DEMOGRAFICAS', None, None, 'TOM', 'Espontaneo', None, None, 'Banco Agrario', 'Bancolombia', 'Davivienda', 'Banco de Bogotá', 'BBVA', 'Banco Caja Social', 'Banco Popular', 'Bancamía', 'Banco de Occidente', 'Banco Mundo Mujer', '=+H2', None, None, '=+I2', None, None, '=+J2', None, None, '=+K2', None, None, '=+L2', None, None, '=+M2', None, None, '=+N2', None, None, '=+O2', None, None, '=+P2', None, None, '=+Q2', None, None], ['F2 ¿En qué rango de edad te encuentras? [OCULTA]', 'F3 ¿En qué departamento vives?', 'F4 ¿Según los recibos de servicios públicos de tu hogar, ¿a qué estrato perteneces?', 'P1 ¿Cuál es el primer banco que recuerdas?', 'P1_1_1 ¿Qué otros bancos conoces?', 'P1_1_2 ¿Qué otros bancos conoces?', 'P1_1_3 ¿Qué otros bancos conoces?', 'P3_1 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco Agrario', 'P3_2 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Bancolombia', 'P3_3 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Davivienda', 'P3_4 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco de Bogotá', 'P3_5 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) BBVA', 'P3_6 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco Caja Social', 'P3_7 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco Popular', 'P3_8 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Bancamía', 'P3_9 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco de Occidente', 'P3_10 Del siguiente listado de bancos, ¿cuáles conoces?\n(Recuerda que puedes marcar más de una opción) Banco Mundo Mujer', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado', 'TOM', 'Espontaneo', 'Ayudado']]}
-NEG = {'', '0', 'no', 'nan', 'none', 'false', 'ninguno', 'ninguna', 'no se', 'no sé', 'no recuerdo', 'ningun otro', 'ningún otro', 'no aplica'}
-ALIASES = {
-    'Banco Agrario':['banco agrario','banco agrario de colombia','agrario'],
-    'Bancolombia':['bancolombia'],
-    'Davivienda':['davivienda'],  # Davibank/DaviBank NO se cuenta como Davivienda
-    'Banco de Bogotá':['banco de bogota','banco de bogotá','banco bogota','banco bogotá'],
-    'BBVA':['bbva','bbvva','bvva','bbwa','bva','bvvwa'],
-    'Banco Caja Social':['banco caja social','caja social','cajas social','caja sosial'],
-    'Banco Popular':['banco popular','popular'],
-    'Bancamía':['bancamia','bancamía','banca mia','banca mía'],
-    'Banco de Occidente':['banco de occidente','occidente'],
-    'Banco Mundo Mujer':['banco mundo mujer','mundo mujer','banco de la mujer','fundacion de la mujer','fundación de la mujer','de la mujer']
+
+# ============================================================
+# CONFIGURACIONES PREDEFINIDAS
+# ============================================================
+
+# --- PRESET 1: BANCOS ---
+BANKS = [
+    "Banco Agrario", "Bancolombia", "Davivienda", "Banco de Bogotá",
+    "BBVA", "Banco Caja Social", "Banco Popular", "Bancamía",
+    "Banco de Occidente", "Banco Mundo Mujer",
+]
+
+BANK_ALIASES = {
+    "Banco Agrario": ["banco agrario", "banco agrario de colombia", "agrario"],
+    "Bancolombia": ["bancolombia"],
+    "Davivienda": ["davivienda"],
+    "Banco de Bogotá": ["banco de bogota", "banco de bogotá", "banco bogota", "banco bogotá"],
+    "BBVA": ["bbva", "bbvva", "bvva", "bbwa", "bva", "bvvwa"],
+    "Banco Caja Social": ["banco caja social", "caja social", "cajas social", "caja sosial"],
+    "Banco Popular": ["banco popular", "popular"],
+    "Bancamía": ["bancamia", "bancamía", "banca mia", "banca mía"],
+    "Banco de Occidente": ["banco de occidente", "occidente"],
+    "Banco Mundo Mujer": ["banco mundo mujer", "mundo mujer", "banco de la mujer", "fundacion de la mujer", "de la mujer"],
 }
 
-def norm(x):
-    if pd.isna(x): return ''
-    x=str(x).strip().lower()
-    x=unicodedata.normalize('NFKD',x).encode('ascii','ignore').decode('ascii')
-    x=re.sub(r'[^a-z0-9\s]+',' ',x)
-    return re.sub(r'\s+',' ',x).strip()
+BANK_NORMALIZATIONS = [
+    {"pattern": r"(?i).*Banco\s+de\s+Bogota.*", "replacement": "Banco de Bogotá"},
+    {"pattern": r"(?i).*(?<!Banco\s)Caja\s+Social.*", "replacement": "Banco Caja Social"},
+    {"pattern": r"(?i).*Bancamia.*", "replacement": "Bancamía"},
+]
 
-def clean_text(x):
-    if pd.isna(x): return x
-    s=str(x)
-    s=re.sub(r'(?i)Banco\s+de\s+Bogota','Banco de Bogotá',s)
-    s=re.sub(r'(?i)(?<!Banco\s)Caja\s+Social','Banco Caja Social',s)
-    s=re.sub(r'(?i)Bancamia','Bancamía',s)
-    return s
+# --- PRESET 2: CONGLOMERADOS FINANCIEROS Y MARCAS GENERALES ---
+CONGLOMERATES = [
+    "Conglomerado BBVA", "Grupo cooperativo Coomeva", "Fundación Grupo Social",
+    "Grupo Bolivar", "Conglomerado financiero Sura-Bancolombia", "Grupo Aval",
+    "GNB Sudameris", "Conglomerado Credicorp capital"
+]
 
-def find_col(df,prefix):
-    p=norm(prefix)
-    for c in df.columns:
-        if norm(c).startswith(p): return c
-    return None
+CONGLOMERATE_ALIASES = {
+    "Conglomerado BBVA": ["conglomerado bbva", "bbva"],
+    "Grupo cooperativo Coomeva": ["grupo cooperativo coomeva", "coomeva"],
+    "Fundación Grupo Social": ["fundacion grupo social", "grupo social"],
+    "Grupo Bolivar": ["grupo bolivar", "bolivar"],
+    "Conglomerado financiero Sura-Bancolombia": ["conglomerado financiero sura bancolombia", "sura", "bancolombia"],
+    "Grupo Aval": ["grupo aval", "aval"],
+    "GNB Sudameris": ["gnb sudameris", "sudameris", "gnb"],
+    "Conglomerado Credicorp capital": ["conglomerado credicorp capital", "credicorp"]
+}
 
-def find_cols(df,prefixes):
-    return [c for p in prefixes for c in [find_col(df,p)] if c is not None]
+CONGLOMERATE_NORMALIZATIONS = [
+    # --- Conglomerados Financieros ---
+    {"pattern": r"(?i).*grupo\s+bancolombia.*", "replacement": "Grupo Bancolombia"},
+    {"pattern": r"(?i).*(?<!grupo\s)bancolombia.*", "replacement": "Bancolombia"},
+    {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo exito"},
+    {"pattern": r"(?i).*ecopetrol.*", "replacement": "Grupo Ecopetrol"},
+    {"pattern": r"(?i).*nutresa.*", "replacement": "Grupo nutresa"},
+    {"pattern": r"(?i).*(sudameris|gnb).*", "replacement": "GNB Sudameris"},
+    {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"},
+    {"pattern": r"(?i).*skandia.*", "replacement": "Conglomerado Skandia"},
+    
+    # --- Homologación de Marcas de Consumo / Retail / Typos ---
+    {"pattern": r"(?i).*(adidas|afidas|asidas|adida).*", "replacement": "Adidas"},
+    {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola).*", "replacement": "Coca-Cola"},
+    {"pattern": r"(?i).*(av\s+villas|avvillas).*", "replacement": "Banco AV Villas"},
+    {"pattern": r"(?i).*(nestle|nestlé).*", "replacement": "Nestlé"},
+    {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
+]
 
-def contains_brand(x,brand):
-    t=norm(x)
-    if t in NEG: return False
-    for a in ALIASES.get(brand,[brand]):
-        aa=norm(a)
-        if aa and re.search(r'(^|\s)'+re.escape(aa)+r'(\s|$)', t): return True
+# Modificable si necesitas expandir respuestas nulas
+NEGATIVOS = {
+    "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
+    "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
+}
+
+
+# ============================================================
+# UTILIDADES DE TEXTO
+# ============================================================
+
+def norm(value) -> str:
+    if pd.isna(value): return ""
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def safe_sheet_name(name: str) -> str:
+    cleaned = re.sub(r"[\\/*?:\[\]]", " ", str(name)).strip()
+    return cleaned[:31] or "Hoja"
+
+def apply_normalizations(value, normalizations: List[Dict]) -> str:
+    if pd.isna(value):
+        return value
+    text = str(value).strip()
+    for item in normalizations or []:
+        pattern = item.get("pattern", "")
+        replacement = item.get("replacement", "")
+        if not pattern: continue
+        try:
+            if re.search(pattern, text):
+                return replacement
+        except re.error:
+            pass
+    return text
+
+def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
+    text = norm(value)
+    if text in NEGATIVOS: return False
+    for alias in aliases.get(entity, [entity]):
+        alias_norm = norm(alias)
+        if alias_norm and re.search(r"(^|\s)" + re.escape(alias_norm) + r"(\s|$)", text):
+            return True
     return False
 
-def aided_brand(col):
-    t=norm(str(col).replace('\n',' '))
-    for b in BRANDS:
-        if norm(b) in t: return b
-    if 'caja social' in t: return 'Banco Caja Social'
-    if 'bancamia' in t: return 'Bancamía'
-    if 'banco de bogota' in t: return 'Banco de Bogotá'
+
+# ============================================================
+# DETECCIÓN DE COLUMNAS (CORREGIDO)
+# ============================================================
+
+def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
+    prefix_norm = norm(prefix)
+    if not prefix_norm or prefix_norm == "0": return None
+    for column in df.columns:
+        col_norm = norm(column)
+        # Cambio: de startswith() a 'in' para búsqueda flexible
+        if prefix_norm in col_norm: 
+            return column
     return None
 
-def detect(df):
-    d={}
-    for f in ['F1','F2','F3','F4','F5']:
-        d[f]=find_col(df,f+' ')
-    d['P1']=find_col(df,'P1 '); d['P2']=find_col(df,'P2 ')
-    d['P1e']=find_cols(df,['P1_1_1','P1_1_2','P1_1_3'])
-    d['P2e']=find_cols(df,['P2_1_1','P2_1_2','P2_1_3'])
-    d['P3a']=find_cols(df,[f'P3_{i} ' for i in range(1,11)])
-    d['P4a']=find_cols(df,[f'P4_{i} ' for i in range(1,11)])
-    return d
+def prefixes_to_list(text: str) -> List[str]:
+    return [line.strip() for line in str(text).splitlines() if line.strip()]
 
-def build_awareness(df,d,kind):
-    if kind=='PUB':
-        raw=[d['F2'],d['F3'],d['F4'],d['P2']]+d['P2e']+d['P4a']; tom=d['P2']; esps=d['P2e']; ayud=d['P4a']
-    else:
-        raw=[d['F2'],d['F3'],d['F4'],d['P1']]+d['P1e']+d['P3a']; tom=d['P1']; esps=d['P1e']; ayud=d['P3a']
-    raw=[c for c in raw if c is not None]
-    if len(raw)!=17:
-        raise ValueError(f'{kind} debe tener 17 columnas crudas; detectadas {len(raw)}: {raw}')
-    rawdf=df[raw].applymap(clean_text)
-    out=rawdf.copy(); ind={}
-    ayumap={b:None for b in BRANDS}
-    for c in ayud:
-        b=aided_brand(c)
-        if b in ayumap: ayumap[b]=c
-    for b in BRANDS:
-        T=rawdf[tom].apply(lambda x: contains_brand(x,b))
-        E=pd.Series(False,index=df.index)
-        for c in esps:
-            E = E | rawdf[c].apply(lambda x: contains_brand(x,b))
-        A=rawdf[ayumap[b]].apply(lambda x: contains_brand(x,b)) if ayumap.get(b) else pd.Series(False,index=df.index)
-        ind[(b,'TOM')]=T.astype(int)
-        ind[(b,'Espontaneo')]=((~T)&E).astype(int)
-        ind[(b,'Ayudado')]=((~T)&(~E)&A).astype(int)
-        out[(b,'TOM')]=ind[(b,'TOM')]
-        out[(b,'Espontaneo')]=ind[(b,'Espontaneo')]
-        out[(b,'Ayudado')]=ind[(b,'Ayudado')]
-    return out, pd.DataFrame(ind)
+def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
+    detected = []
+    prefixes = [norm(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    if not prefixes: return detected
+    for column in df.columns:
+        col_norm = norm(column)
+        # Cambio: de startswith() a 'in' para búsqueda flexible
+        if any(prefix in col_norm for prefix in prefixes):
+            if column not in detected:
+                detected.append(column)
+    return detected
 
-def style_cells(ws):
-    thin=Side(style='thin', color='BFBFBF')
-    border=Border(left=thin,right=thin,top=thin,bottom=thin)
+def entity_from_aided_col(column_name: str, entities: List[str]) -> Optional[str]:
+    text = norm(str(column_name).replace("\n", " "))
+    for entity in entities:
+        if norm(entity) in text: return entity
+    return None
+
+
+# ============================================================
+# CÁLCULO DE AWARENESS Y TABLAS
+# ============================================================
+
+def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[str], aliases: Dict, normalizations: List[Dict], expected_raw_cols: int):
+    tom_col = find_col(df, cfg["tom"])
+    esp_cols = find_cols(df, cfg["esp"])
+    ayud_cols = find_cols(df, cfg["ayu"])
+
+    raw_cols = [demo_cols.get(k) for k in ["sexo", "edad", "departamento", "estrato", "ingreso"]] + [tom_col] + esp_cols + ayud_cols
+    raw_cols = [col for col in raw_cols if col is not None]
+
+    if expected_raw_cols and expected_raw_cols > 0 and len(raw_cols) != expected_raw_cols:
+        raise ValueError(f"Se esperaban {expected_raw_cols} columnas, pero se detectaron {len(raw_cols)}. Pon 0 en 'Columnas crudas esperadas'.")
+
+    raw_df = df[raw_cols].copy()
+    
+    # Nota: Para las matrices crudas de salida conservamos el procesamiento por celda
+    output_df = raw_df.copy()
+    indicators = {}
+
+    aided_map = {entity: None for entity in entities}
+    for col in ayud_cols:
+        entity = entity_from_aided_col(col, entities)
+        if entity in aided_map: aided_map[entity] = col
+
+    for entity in entities:
+        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases))
+        
+        espontaneo = pd.Series(False, index=df.index)
+        for col in esp_cols:
+            espontaneo = espontaneo | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
+
+        aided_col = aided_map.get(entity)
+        if aided_col is not None:
+            def check_aided_value(value, ent, als):
+                if pd.isna(value): return False
+                v_str = str(value).strip().lower()
+                if v_str in ["1", "si", "sí", "x", "seleccionado", "true"] or ent.lower() in v_str: return True
+                return contains_entity(value, ent, als)
+            ayudado = raw_df[aided_col].apply(lambda value: check_aided_value(value, entity, aliases))
+        else:
+            ayudado = pd.Series(False, index=df.index)
+            for col in ayud_cols:
+                ayudado = ayudado | raw_df[col].apply(lambda value: contains_entity(value, entity, aliases))
+
+        indicators[(entity, "TOM")] = tom.astype(int)
+        indicators[(entity, "Espontaneo")] = ((~tom) & espontaneo).astype(int)
+        indicators[(entity, "Ayudado")] = ((~tom) & (~espontaneo) & ayudado).astype(int)
+
+        output_df[(entity, "TOM")] = indicators[(entity, "TOM")]
+        output_df[(entity, "Espontaneo")] = indicators[(entity, "Espontaneo")]
+        output_df[(entity, "Ayudado")] = indicators[(entity, "Ayudado")]
+
+    return output_df, pd.DataFrame(indicators), raw_cols
+
+
+# ⚡ NUEVA FUNCIÓN OPTIMIZADA: Desglose multi-respuesta para la tabla de frecuencias Abiertas
+def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
+    if not tom_col:
+        return pd.DataFrame()
+    
+    all_mentions = []
+    
+    for row_value in df[tom_col].dropna():
+        val_str = str(row_value).strip()
+        if val_str.lower() in NEGATIVOS or val_str == "":
+            all_mentions.append("Ninguno / NS-NR")
+            continue
+        
+        # Soportar respuestas múltiples separando por comas, puntos y comas, o la palabra " y "
+        pieces = re.split(r'[,;]|\s+y\s+|\s+Y\s+', val_str)
+        
+        for piece in pieces:
+            piece = piece.strip()
+            if not piece or piece.lower() in NEGATIVOS:
+                continue
+            
+            # Aplicar mapeo de expresiones regulares al fragmento individual
+            normalized_piece = apply_normalizations(piece, normalizations)
+            
+            # Formateo estandarizado final
+            v = str(normalized_piece).strip()
+            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
+                v = v.title()  # Convierte "adidas" libre a "Adidas"
+                
+            all_mentions.append(v)
+            
+    if not all_mentions:
+        return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
+        
+    # Agrupar y generar frecuencias reales desglosadas
+    freq = pd.Series(all_mentions).value_counts().reset_index()
+    freq.columns = ["Marca / Categoría TOM", "Cantidad"]
+    
+    total = freq["Cantidad"].sum()
+    freq["%"] = freq["Cantidad"] / total if total > 0 else 0
+    return freq
+
+
+def category_table(indicators, df, category_col, category_value, entities):
+    mask = pd.Series(True, index=df.index) if category_col is None else df[category_col].fillna("Sin dato") == category_value
+    base = int(mask.sum())
+    rows = []
+    for entity in entities:
+        tom = int(indicators[(entity, "TOM")][mask].sum()) if (entity, "TOM") in indicators else 0
+        esp = int(indicators[(entity, "Espontaneo")][mask].sum()) if (entity, "Espontaneo") in indicators else 0
+        ayu = int(indicators[(entity, "Ayudado")][mask].sum()) if (entity, "Ayudado") in indicators else 0
+        awa = tom + esp + ayu
+        rows.append({"Entidad": entity, "TOM": tom, "TOM %": tom/base if base else 0, "Espontaneo": esp, "Espontaneo %": esp/base if base else 0, "Ayudado": ayu, "Ayudado %": ayu/base if base else 0, "AWA": awa, "AWA %": awa/base if base else 0})
+    return pd.DataFrame(rows)
+
+def awareness_sections(indicators, df, demo_cols, analysis_name, entities):
+    sections = [(f"Resumen general {analysis_name}", category_table(indicators, df, None, None, entities))]
+    for key in ["sexo", "estrato"]:
+        col = demo_cols.get(key)
+        if col:
+            for value in pd.Series(df[col].fillna("Sin dato")).drop_duplicates():
+                sections.append((f"Detalle por {key} - {value}", category_table(indicators, df, col, value, entities)))
+    return sections
+
+def department_sections(indicators, df, demo_cols, entities):
+    dept_col = demo_cols.get("departamento")
+    if not dept_col: return [("Sin departamento/ciudad detectado", pd.DataFrame())]
+    return [(str(value), category_table(indicators, df, dept_col, value, entities)) for value in pd.Series(df[dept_col].fillna("Sin dato")).drop_duplicates()]
+
+def demographic_sections(df, demo_cols):
+    sections = [("Base", pd.DataFrame({"Indicador": ["Total encuestas procesadas"], "Valor": [len(df)]}))]
+    for key, label in [("sexo", "Sexo"), ("edad", "Edad"), ("departamento", "Ciudad/Depto"), ("estrato", "Estrato"), ("ingreso", "Ingreso")]:
+        col = demo_cols.get(key)
+        if col:
+            table = df[col].fillna("Sin dato").value_counts().rename_axis(label).reset_index(name="Cantidad")
+            table["%"] = table["Cantidad"] / len(df) if len(df) else 0
+            sections.append((f"Demográfico - {label}", table))
+    return sections
+
+def style_sheet(ws):
+    border = Border(left=Side(style="thin", color="BFBFBF"), right=Side(style="thin", color="BFBFBF"), top=Side(style="thin", color="BFBFBF"), bottom=Side(style="thin", color="BFBFBF"))
     for row in ws.iter_rows():
         for cell in row:
-            cell.border=border
-            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    for c in range(1,ws.max_column+1):
-        ws.column_dimensions[get_column_letter(c)].width=18
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for col_idx in range(1, ws.max_column + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 24
 
-def style_main(ws):
-    style_cells(ws)
-    fill=PatternFill('solid',fgColor='D9EAF7')
-    for r in [1,2,3]:
-        for c in range(1,ws.max_column+1):
-            ws.cell(r,c).fill=fill
-            ws.cell(r,c).font=Font(bold=True)
-    ws.freeze_panes='A4'
+def write_main_sheet(wb, sheet_name, output_df):
+    ws = wb.create_sheet(safe_sheet_name(sheet_name))
+    for col_idx, column in enumerate(output_df.columns, start=1):
+        ws.cell(1, col_idx).value = str(column)
+        ws.cell(1, col_idx).fill = PatternFill("solid", fgColor="D9EAF7")
+        ws.cell(1, col_idx).font = Font(bold=True)
+    for row_idx, row in enumerate(output_df.itertuples(index=False), start=2):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row_idx, col_idx).value = value
+    style_sheet(ws)
 
-def write_main(wb,name,dfout):
-    ws=wb.create_sheet(name)
-    for r in range(1,4):
-        for c in range(1,48):
-            ws.cell(r,c).value=EXACT_HEADERS[name][r-1][c-1]
-    for rr,row in enumerate(dfout.itertuples(index=False), start=4):
-        for cc,val in enumerate(row,start=1):
-            ws.cell(rr,cc).value=val
-    style_main(ws)
+def write_sections_sheet(wb, sheet_name, sections):
+    ws = wb.create_sheet(safe_sheet_name(sheet_name))
+    row_idx = 1
+    for title, df_table in sections:
+        ws.cell(row_idx, 1).value = title
+        ws.cell(row_idx, 1).fill = PatternFill("solid", fgColor="C6E0B4")
+        ws.cell(row_idx, 1).font = Font(bold=True)
+        row_idx += 1
+        if df_table.empty:
+            ws.cell(row_idx, 1).value = "Sin datos disponibles"
+            row_idx += 3
+            continue
+        for col_idx, column in enumerate(df_table.columns, start=1):
+            ws.cell(row_idx, col_idx).value = column
+            ws.cell(row_idx, col_idx).fill = PatternFill("solid", fgColor="4472C4")
+            ws.cell(row_idx, col_idx).font = Font(bold=True, color="FFFFFF")
+        row_idx += 1
+        for record in df_table.itertuples(index=False):
+            for col_idx, value in enumerate(record, start=1):
+                cell = ws.cell(row_idx, col_idx)
+                cell.value = value
+                if str(df_table.columns[col_idx - 1]).endswith("%"):
+                    cell.number_format = "0%"
+            row_idx += 1
+        row_idx += 2
+    style_sheet(ws)
 
-def table_by_category(ind, df, d, key, category):
-    col=d[key]
-    mask=(df[col].fillna('Sin dato')==category)
-    base=int(mask.sum())
-    rows=[]
-    for b in BRANDS:
-        tom=int(ind[(b,'TOM')][mask].sum())
-        esp=int(ind[(b,'Espontaneo')][mask].sum())
-        ayu=int(ind[(b,'Ayudado')][mask].sum())
-        awa=tom+esp+ayu
-        rows.append({'Marca':b,'TOM':tom,'TOM %':tom/base if base else 0,'Espontaneo':esp,'Espontaneo %':esp/base if base else 0,'Ayudado':ayu,'Ayudado %':ayu/base if base else 0,'AWA':awa,'AWA %':awa/base if base else 0})
-    return pd.DataFrame(rows)
+def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
+    run_1 = cfg1["tom"].strip() not in ["0", ""]
+    run_2 = cfg2["tom"].strip() not in ["0", ""]
+    if not run_1 and not run_2: raise ValueError("Debe configurar al menos un análisis válido.")
+    
+    wb = Workbook()
+    wb.remove(wb.active)
+    write_sections_sheet(wb, "Resumen Demográficos", demographic_sections(df, demo_cols))
 
-def summary(ind,n):
-    rows=[]
-    for b in BRANDS:
-        tom=int(ind[(b,'TOM')].sum()); esp=int(ind[(b,'Espontaneo')].sum()); ayu=int(ind[(b,'Ayudado')].sum()); awa=tom+esp+ayu
-        rows.append({'Marca':b,'TOM':tom,'TOM %':tom/n,'Espontaneo':esp,'Espontaneo %':esp/n,'Ayudado':ayu,'Ayudado %':ayu/n,'AWA':awa,'AWA %':awa/n})
-    return pd.DataFrame(rows)
+    for cfg, run_flag in [(cfg1, run_1), (cfg2, run_2)]:
+        if run_flag:
+            output_df, indicators, _ = build_analysis(df, demo_cols, cfg, entities, aliases, normalizations, expected_raw_cols)
+            write_main_sheet(wb, cfg["name"], output_df)
+            write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
+            write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
+            
+            # Frecuencias P1 con desglose de respuesta múltiple integrado
+            tom_col_name = find_col(df, cfg["tom"])
+            if tom_col_name:
+                freq_table = tom_frequency_table(df, tom_col_name, normalizations)
+                write_sections_sheet(wb, f"Frecuencias P1 {cfg['name']}", [("Distribución de Respuestas P1 (TOM)", freq_table)])
 
-def sex_dept_table(df,d):
-    t=pd.crosstab(df[d['F3']].fillna('Sin dato'), df[d['F1']].fillna('Sin dato'))
-    t['Total']=t.sum(axis=1)
-    return t.reset_index().rename(columns={d['F3']:'Departamento'})
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
 
-def demo_sections(df,d):
-    n=len(df)
-    sections=[('Base', pd.DataFrame({'Indicador':['Total encuestas procesadas'],'Valor':[n]}))]
-    for name,key in [('Sexo','F1'),('Edad','F2'),('Departamento','F3'),('Estrato','F4'),('Ingreso','F5')]:
-        col=d.get(key)
-        if col:
-            t=df[col].fillna('Sin dato').value_counts().rename_axis(name).reset_index(name='Cantidad')
-            t['%']=t['Cantidad']/n
-            sections.append(('Demográfico - '+name,t))
-    sections.append(('Participación Sexo por Departamento', sex_dept_table(df,d)))
-    return sections
 
-def resumen_sections(ind, df, d, titulo, n):
-    sections=[(titulo, summary(ind,n))]
-    if d.get('F1'):
-        for sexo in list(pd.Series(df[d['F1']].fillna('Sin dato')).drop_duplicates()):
-            sections.append((f'Detalle por sexo - {sexo}', table_by_category(ind,df,d,'F1',sexo)))
-    if d.get('F4'):
-        for estrato in list(pd.Series(df[d['F4']].fillna('Sin dato')).drop_duplicates()):
-            sections.append((f'Detalle por estrato - {estrato}', table_by_category(ind,df,d,'F4',estrato)))
-    return sections
+# ============================================================
+# INTERFAZ STREAMLIT
+# ============================================================
 
-def dept_sections(ind, df, d):
-    sections=[]
-    for dep in list(pd.Series(df[d['F3']].fillna('Sin dato')).drop_duplicates()):
-        sections.append((str(dep), table_by_category(ind,df,d,'F3',dep)))
-    return sections
+st.set_page_config(page_title="Awareness Flexible", layout="wide")
+st.title("Generador flexible de Awareness / Recordación")
 
-def write_sections(wb,name,sections,percent_cols=None):
-    ws=wb.create_sheet(name)
-    r=1
-    title_fill=PatternFill('solid',fgColor='C6E0B4')
-    head_fill=PatternFill('solid',fgColor='4472C4')
-    thin=Side(style='thin', color='BFBFBF')
-    border=Border(left=thin,right=thin,top=thin,bottom=thin)
-    percent_cols=percent_cols or []
-    for title,df in sections:
-        ws.cell(r,1).value=title
-        ws.cell(r,1).fill=title_fill
-        ws.cell(r,1).font=Font(bold=True)
-        r+=1
-        for c,col in enumerate(df.columns,start=1):
-            ws.cell(r,c).value=col
-            ws.cell(r,c).fill=head_fill
-            ws.cell(r,c).font=Font(bold=True,color='FFFFFF')
-        r+=1
-        for rec in df.itertuples(index=False):
-            for c,val in enumerate(rec,start=1):
-                cell=ws.cell(r,c)
-                cell.value=val
-                cell.border=border
-                if df.columns[c-1] in percent_cols:
-                    cell.number_format='0%'
-            r+=1
-        r+=2
-    style_cells(ws)
+with st.sidebar:
+    st.header("Configuración general")
+    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=1)
+    uploaded_file = st.file_uploader("Archivo base .xlsx o .csv", type=["xlsx", "csv"])
+    max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
+    default_expected_cols = 17 if mode == "Bancos" else 0
+    expected_raw_cols = st.number_input("Columnas crudas esperadas (0 = no validar)", min_value=0, value=default_expected_cols, step=1)
 
-def build_workbook(input_file, output_file):
-    df=pd.read_excel(input_file, engine='openpyxl')
-    d=detect(df)
-    n=len(df)
-    pub,pubi=build_awareness(df,d,'PUB')
-    marca,marcai=build_awareness(df,d,'MARCA')
-    wb=Workbook(); wb.remove(wb.active)
-    write_main(wb,'AWA PUB',pub)
-    write_main(wb,'AWA Marca',marca)
-    pct=['%','TOM %','Espontaneo %','Ayudado %','AWA %']
-    write_sections(wb,'Resumen Demográficos',demo_sections(df,d),pct)
-    write_sections(wb,'Resumen AWA PUB',resumen_sections(pubi,df,d,'Resumen general AWA PUB',n),pct)
-    write_sections(wb,'Resumen AWA Marca',resumen_sections(marcai,df,d,'Resumen general AWA Marca',n),pct)
-    write_sections(wb,'Deptos AWA PUB',dept_sections(pubi,df,d),pct)
-    write_sections(wb,'Deptos AWA Marca',dept_sections(marcai,df,d),pct)
-    wb.save(output_file)
-    print('Listo:',output_file)
+if mode == "Bancos":
+    default_entities, default_aliases, default_normalizations = BANKS, BANK_ALIASES, BANK_NORMALIZATIONS
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1 ", "F2 ", "F4 ", "F3 ", "0"
+    t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "0", "0", "0"
+    t2_name, t2_tom, t2_esp, t2_ayu = "AWA Marca", "P1", "P1A.1\nP1A.2\nP1A.3", "P2.1\nP2.2\nP2.3"
+elif mode == "Conglomerados Financieros":
+    default_entities, default_aliases, default_normalizations = CONGLOMERATES, CONGLOMERATE_ALIASES, CONGLOMERATE_NORMALIZATIONS
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1", "F2a", "F4", "F3", "F5"
+    t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "0", "0", "0"
+    t2_name, t2_tom, t2_esp, t2_ayu = "Conglomerados AWA", "P1 -", "P1A -", "P2-P2."
+else:
+    default_entities, default_aliases, default_normalizations = ["Entidad 1"], {"Entidad 1": ["entidad 1"]}, []
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "", "", "", "", ""
+    t1_name, t1_tom, t1_esp, t1_ayu = "Análisis 1", "0", "0", "0"
+    t2_name, t2_tom, t2_esp, t2_ayu = "Análisis 2", "0", "0", "0"
 
-if __name__=='__main__':
+with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
+    entities_text = st.text_area("Entidades a evaluar, una por línea", "\n".join(default_entities), height=200)
+    aliases_text = st.text_area("Alias / condiciones en JSON", json.dumps(default_aliases, ensure_ascii=False, indent=2), height=220)
+    normalizations_text = st.text_area("Normalizaciones opcionales en JSON", json.dumps(default_normalizations, ensure_ascii=False, indent=2), height=250)
+
+try:
+    aliases, normalizations = json.loads(aliases_text), json.loads(normalizations_text)
+except Exception as exc:
+    st.error(f"Error en estructuras JSON: {exc}"); st.stop()
+
+entities = [line.strip() for line in entities_text.splitlines() if line.strip()]
+
+with st.expander("2. Preguntas y demográficos", expanded=True):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        sexo_prefix = st.text_input("Sexo", def_sexo)
+        edad_prefix = st.text_input("Edad", def_edad)
+        departamento_prefix = st.text_input("Departamento / Ciudad", def_depto)
+        estrato_prefix = st.text_input("Estrato", def_estrato)
+        ingreso_prefix = st.text_input("Ingreso / Rangos", def_ingreso)
+    with col2:
+        a1_name = st.text_input("Nombre análisis 1", t1_name)
+        a1_tom = st.text_input("TOM análisis 1", t1_tom)
+        a1_esp = st.text_area("Espontáneo análisis 1", t1_esp, height=100)
+        a1_ayu = st.text_area("Ayudado análisis 1", t1_ayu, height=100)
+    with col3:
+        a2_name = st.text_input("Nombre análisis 2", t2_name)
+        a2_tom = st.text_input("TOM análisis 2", t2_tom)
+        a2_esp = st.text_area("Espontáneo análisis 2", t2_esp, height=100)
+        a2_ayu = st.text_area("Ayudado análisis 2", t2_ayu, height=100)
+
+if uploaded_file is None:
+    st.info("Por favor carga el archivo de datos para iniciar.")
+    st.stop()
+
+try:
+    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, engine="openpyxl")
+except Exception as exc:
+    st.error(f"Error al leer el archivo: {exc}"); st.stop()
+
+if max_rows and max_rows > 0: df = df.head(int(max_rows)).copy()
+
+demo_cols = {
+    "sexo": find_col(df, sexo_prefix), "edad": find_col(df, edad_prefix),
+    "departamento": find_col(df, departamento_prefix), "estrato": find_col(df, estrato_prefix),
+    "ingreso": find_col(df, ingreso_prefix),
+}
+
+cfg1, cfg2 = {"name": a1_name, "tom": a1_tom, "esp": a1_esp, "ayu": a1_ayu}, {"name": a2_name, "tom": a2_tom, "esp": a2_esp, "ayu": a2_ayu}
+
+st.subheader("3. Validación de Columnas")
+validation_rows = [{"Tipo": "Demográfico", "Campo": k, "Columna detectada": str(v)} for k, v in demo_cols.items()]
+for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
+    if cfg["tom"].strip() not in ["0", ""]:
+        validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
+        validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
+        validation_rows.append({"Tipo": label, "Campo": "Ayudado", "Columna detectada": ", ".join(find_cols(df, cfg["ayu"]))})
+
+st.dataframe(pd.DataFrame(validation_rows), use_container_width=True)
+
+st.subheader("4. Procesar y Descargar")
+if st.button("Generar Reporte Excel", type="primary"):
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root=tk.Tk(); root.withdraw()
-        input_path=filedialog.askopenfilename(title='Selecciona el Excel base',filetypes=[('Excel','*.xlsx *.xls')])
-        if not input_path: raise SystemExit('No se seleccionó archivo')
-    except Exception:
-        input_path=input('Ruta del archivo Excel: ').strip().strip('"')
-    build_workbook(input_path, os.path.join(os.path.dirname(input_path) or '.', 'Resultado_Awareness_Final_Limpio_v6.xlsx'))
+        result = build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, int(expected_raw_cols))
+        st.success("¡Cálculo e indicadores generados exitosamente!")
+        st.download_button(label="📥 Descargar Reporte de Awareness", data=result, file_name="Reporte_Awareness_Estructural.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as exc:
+        st.exception(exc)
