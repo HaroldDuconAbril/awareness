@@ -100,10 +100,18 @@ NEGATIVOS = {
 # ============================================================
 
 def norm(value) -> str:
+    """Para procesar el contenido/respuestas por celda (ignora puntos)"""
     if pd.isna(value): return ""
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     text = re.sub(r"[^a-z0-9\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def clean_col(value) -> str:
+    """NUEVA: Para buscar NOMBRES de columnas respetando puntos (.) y guiones."""
+    if pd.isna(value): return ""
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"\s+", " ", text).strip()
 
 def safe_sheet_name(name: str) -> str:
@@ -140,25 +148,25 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
-    prefix_norm = norm(prefix)
+    prefix_norm = clean_col(prefix) # Se usa clean_col para preservar el punto
     if not prefix_norm or prefix_norm == "0": return None
     for column in df.columns:
-        col_norm = norm(column)
-        # Cambio: de startswith() a 'in' para búsqueda flexible
+        col_norm = clean_col(column)
         if prefix_norm in col_norm: 
             return column
     return None
 
 def prefixes_to_list(text: str) -> List[str]:
-    return [line.strip() for line in str(text).splitlines() if line.strip()]
+    # Permite separar tanto por saltos de línea como por comas
+    lines = str(text).replace(",", "\n").splitlines()
+    return [line.strip() for line in lines if line.strip()]
 
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     detected = []
-    prefixes = [norm(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
     if not prefixes: return detected
     for column in df.columns:
-        col_norm = norm(column)
-        # Cambio: de startswith() a 'in' para búsqueda flexible
+        col_norm = clean_col(column)
         if any(prefix in col_norm for prefix in prefixes):
             if column not in detected:
                 detected.append(column)
@@ -187,8 +195,6 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
         raise ValueError(f"Se esperaban {expected_raw_cols} columnas, pero se detectaron {len(raw_cols)}. Pon 0 en 'Columnas crudas esperadas'.")
 
     raw_df = df[raw_cols].copy()
-    
-    # Nota: Para las matrices crudas de salida conservamos el procesamiento por celda
     output_df = raw_df.copy()
     indicators = {}
 
@@ -198,7 +204,7 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
         if entity in aided_map: aided_map[entity] = col
 
     for entity in entities:
-        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases))
+        tom = raw_df[tom_col].apply(lambda value: contains_entity(value, entity, aliases)) if tom_col else pd.Series(False, index=df.index)
         
         espontaneo = pd.Series(False, index=df.index)
         for col in esp_cols:
@@ -228,7 +234,6 @@ def build_analysis(df: pd.DataFrame, demo_cols: Dict, cfg: Dict, entities: List[
     return output_df, pd.DataFrame(indicators), raw_cols
 
 
-# ⚡ NUEVA FUNCIÓN OPTIMIZADA: Desglose multi-respuesta para la tabla de frecuencias Abiertas
 def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dict]) -> pd.DataFrame:
     if not tom_col:
         return pd.DataFrame()
@@ -249,23 +254,18 @@ def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dic
             if not piece or piece.lower() in NEGATIVOS:
                 continue
             
-            # Aplicar mapeo de expresiones regulares al fragmento individual
             normalized_piece = apply_normalizations(piece, normalizations)
-            
-            # Formateo estandarizado final
             v = str(normalized_piece).strip()
             if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
-                v = v.title()  # Convierte "adidas" libre a "Adidas"
+                v = v.title()  
                 
             all_mentions.append(v)
             
     if not all_mentions:
         return pd.DataFrame(columns=["Marca / Categoría TOM", "Cantidad", "%"])
         
-    # Agrupar y generar frecuencias reales desglosadas
     freq = pd.Series(all_mentions).value_counts().reset_index()
     freq.columns = ["Marca / Categoría TOM", "Cantidad"]
-    
     total = freq["Cantidad"].sum()
     freq["%"] = freq["Cantidad"] / total if total > 0 else 0
     return freq
@@ -355,9 +355,12 @@ def write_sections_sheet(wb, sheet_name, sections):
     style_sheet(ws)
 
 def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
-    run_1 = cfg1["tom"].strip() not in ["0", ""]
-    run_2 = cfg2["tom"].strip() not in ["0", ""]
-    if not run_1 and not run_2: raise ValueError("Debe configurar al menos un análisis válido.")
+    # CORRECCIÓN: Verifica si CUALQUIER campo está activo (no solo TOM)
+    run_1 = any(cfg1[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
+    run_2 = any(cfg2[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
+    
+    if not run_1 and not run_2: 
+        raise ValueError("Debe configurar al menos un análisis válido (TOM, Espontáneo o Ayudado).")
     
     wb = Workbook()
     wb.remove(wb.active)
@@ -464,8 +467,10 @@ cfg1, cfg2 = {"name": a1_name, "tom": a1_tom, "esp": a1_esp, "ayu": a1_ayu}, {"n
 
 st.subheader("3. Validación de Columnas")
 validation_rows = [{"Tipo": "Demográfico", "Campo": k, "Columna detectada": str(v)} for k, v in demo_cols.items()]
+
 for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
-    if cfg["tom"].strip() not in ["0", ""]:
+    # CORRECCIÓN: Mostrar validación si CUALQUIERA está activo
+    if any(cfg[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"]):
         validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
         validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
         validation_rows.append({"Tipo": label, "Campo": "Ayudado", "Columna detectada": ", ".join(find_cols(df, cfg["ayu"]))})
