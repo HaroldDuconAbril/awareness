@@ -22,18 +22,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-# ============================================================
-# INTERFAZ STREAMLIT - CONFIGURACIÓN INICIAL
-# ============================================================
-# st.set_page_config debe ser el primer comando de Streamlit
-logo_filename = "omnicom_media_group_latam_logo_Low_Res.jpg"
-icono_pestana = logo_filename if os.path.exists(logo_filename) else "📊"
-
-st.set_page_config(
-    page_title="Awareness Flexible", 
-    page_icon=icono_pestana, 
-    layout="wide"
-)
 
 # ============================================================
 # CONFIGURACIONES PREDEFINIDAS
@@ -388,6 +376,12 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
     return output.getvalue()
 
 
+# ============================================================
+# INTERFAZ STREAMLIT
+# ============================================================
+
+st.set_page_config(page_title="Awareness", layout="wide")
+
 # --- SISTEMA DE ESTILOS AVANZADOS (GLASSMORPHISM Y INTERFAZ) ---
 def inject_custom_ui(background_path):
     # Carga de fondo en formato base64
@@ -398,11 +392,6 @@ def inject_custom_ui(background_path):
 
     glass_css = f"""
     <style>
-    /* Forzar el color de texto blanco en toda la aplicación general */
-    .stApp, div[data-testid="stMarkdownContainer"] p, h1, h2, h3, h4, h5, h6, label, span {{
-        color: #ffffff !important;
-    }}
-
     /* Fondo Dinámico Completo */
     .stApp {{
         background: {"url('data:image/jpeg;base64," + bg_encoded + "') no-repeat center center fixed" if bg_encoded else "#0f172a"};
@@ -438,10 +427,10 @@ def inject_custom_ui(background_path):
         box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.05) !important;
     }}
     
-    /* Ajustes en los inputs para preservar contraste y asegurar que lo que se escribe sea oscuro y legible */
+    /* Ajustes en los inputs para preservar contraste */
     .stTextInput>div>div>input, .stTextArea>div>div>textarea {{
         background-color: rgba(255, 255, 255, 0.8) !important;
-        color: #0f172a !important; 
+        color: #0f172a !important;
         border-radius: 8px !important;
     }}
 
@@ -470,6 +459,11 @@ def inject_custom_ui(background_path):
 
 # Ejecutar la inyección visual
 inject_custom_ui("Background.jpeg")
+
+# --- HEADER (LOGO E ICONOGRAFÍA DE INTERFAZ) ---
+logo_filename = "omnicom_media_group_latam_logo_Low_Res.jpg"
+if os.path.exists(logo_filename):
+    st.image(logo_filename, width=280)
 
 st.title("Generador flexible de Awareness / Recordación")
 
