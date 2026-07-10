@@ -400,10 +400,10 @@ elif mode == "Conglomerados Financieros":
     t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "0", "0", "0"
     t2_name, t2_tom, t2_esp, t2_ayu = "Conglomerados AWA", "P1 -", "P1A -", "P2-P2."
 else:
-    default_entities = ["Entidad 1"]
+    default_entities = ["Marca 1", "Marca 2"]
     default_aliases = {
-        "Entidad 1": ["Entidad 1", "e1"],
-       
+        "Marca 1": ["marca 1", "m1"],
+        "Marca 2": ["marca 2", "m2"]
     }
     default_normalizations = []
     def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "", "", "", "", ""
