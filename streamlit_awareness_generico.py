@@ -476,7 +476,7 @@ def inject_custom_ui(background_path):
     
     /* Anclar el nuevo footer al contenedor principal (.stApp) en lugar del tag footer */
     .stApp::after {{
-        content: 'Desarrollado por Research and Analitycs';
+        content: 'Developed by Research and Analytics';
         display: flex;
         position: fixed;
         left: 0;
