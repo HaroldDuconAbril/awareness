@@ -4,7 +4,7 @@ Generador Flexible de Awareness / Recordación - Streamlit
 
 Funciona para:
 - Bancos
-- Conglomerados Financieros (Nueva Base con Limpieza Avanzada de Marcas)
+- Conglomerados Financieros
 - Marcas / Empresas / Productos / Personalizado
 """
 
@@ -70,7 +70,6 @@ CONGLOMERATE_ALIASES = {
 }
 
 CONGLOMERATE_NORMALIZATIONS = [
-    # --- Conglomerados Financieros ---
     {"pattern": r"(?i).*grupo\s+bancolombia.*", "replacement": "Grupo Bancolombia"},
     {"pattern": r"(?i).*(?<!grupo\s)bancolombia.*", "replacement": "Bancolombia"},
     {"pattern": r"(?i).*(exito|éxito).*", "replacement": "Grupo exito"},
@@ -79,8 +78,6 @@ CONGLOMERATE_NORMALIZATIONS = [
     {"pattern": r"(?i).*(sudameris|gnb).*", "replacement": "GNB Sudameris"},
     {"pattern": r"(?i).*credicorp.*", "replacement": "Conglomerado Credicorp capital"},
     {"pattern": r"(?i).*skandia.*", "replacement": "Conglomerado Skandia"},
-    
-    # --- Homologación de Marcas de Consumo / Retail / Typos ---
     {"pattern": r"(?i).*(adidas|afidas|asidas|adida).*", "replacement": "Adidas"},
     {"pattern": r"(?i).*(coca-cola|cocacola|coca\s+cola).*", "replacement": "Coca-Cola"},
     {"pattern": r"(?i).*(av\s+villas|avvillas).*", "replacement": "Banco AV Villas"},
@@ -88,7 +85,6 @@ CONGLOMERATE_NORMALIZATIONS = [
     {"pattern": r"(?i).*compensar.*", "replacement": "Compensar"}
 ]
 
-# Modificable si necesitas expandir respuestas nulas
 NEGATIVOS = {
     "", "0", "no", "nan", "none", "false", "ninguno", "ninguna",
     "no se", "no sé", "no recuerdo", "ningun otro", "ningún otro", "no aplica",
@@ -100,7 +96,6 @@ NEGATIVOS = {
 # ============================================================
 
 def norm(value) -> str:
-    """Para procesar el contenido/respuestas por celda (ignora puntos)"""
     if pd.isna(value): return ""
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -108,7 +103,6 @@ def norm(value) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 def clean_col(value) -> str:
-    """NUEVA: Para buscar NOMBRES de columnas respetando puntos (.) y guiones."""
     if pd.isna(value): return ""
     text = str(value).strip().lower()
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -144,11 +138,11 @@ def contains_entity(value, entity: str, aliases: Dict[str, List[str]]) -> bool:
 
 
 # ============================================================
-# DETECCIÓN DE COLUMNAS (CORREGIDO)
+# DETECCIÓN DE COLUMNAS
 # ============================================================
 
 def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
-    prefix_norm = clean_col(prefix) # Se usa clean_col para preservar el punto
+    prefix_norm = clean_col(prefix)
     if not prefix_norm or prefix_norm == "0": return None
     for column in df.columns:
         col_norm = clean_col(column)
@@ -157,13 +151,12 @@ def find_col(df: pd.DataFrame, prefix: str) -> Optional[str]:
     return None
 
 def prefixes_to_list(text: str) -> List[str]:
-    # Permite separar tanto por saltos de línea como por comas
     lines = str(text).replace(",", "\n").splitlines()
     return [line.strip() for line in lines if line.strip()]
 
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     detected = []
-    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
+    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() not in ["0", ""]]
     if not prefixes: return detected
     for column in df.columns:
         col_norm = clean_col(column)
@@ -246,7 +239,6 @@ def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dic
             all_mentions.append("Ninguno / NS-NR")
             continue
         
-        # Soportar respuestas múltiples separando por comas, puntos y comas, o la palabra " y "
         pieces = re.split(r'[,;]|\s+y\s+|\s+Y\s+', val_str)
         
         for piece in pieces:
@@ -256,7 +248,7 @@ def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dic
             
             normalized_piece = apply_normalizations(piece, normalizations)
             v = str(normalized_piece).strip()
-            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
+            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco") or v.isupper()):
                 v = v.title()  
                 
             all_mentions.append(v)
@@ -355,12 +347,11 @@ def write_sections_sheet(wb, sheet_name, sections):
     style_sheet(ws)
 
 def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizations, expected_raw_cols):
-    # CORRECCIÓN: Verifica si CUALQUIER campo está activo (no solo TOM)
     run_1 = any(cfg1[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
     run_2 = any(cfg2[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
     
     if not run_1 and not run_2: 
-        raise ValueError("Debe configurar al menos un análisis válido (TOM, Espontáneo o Ayudado).")
+        raise ValueError("Debe configurar al menos un análisis válido. Escriba los nombres de las columnas en la sección 2.")
     
     wb = Workbook()
     wb.remove(wb.active)
@@ -373,7 +364,6 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
             write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
             write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
             
-            # Frecuencias P1 con desglose de respuesta múltiple integrado
             tom_col_name = find_col(df, cfg["tom"])
             if tom_col_name:
                 freq_table = tom_frequency_table(df, tom_col_name, normalizations)
@@ -393,7 +383,7 @@ st.title("Generador flexible de Awareness / Recordación")
 
 with st.sidebar:
     st.header("Configuración general")
-    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=1)
+    mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=2)
     uploaded_file = st.file_uploader("Archivo base .xlsx o .csv", type=["xlsx", "csv"])
     max_rows = st.number_input("Filas a evaluar (0 = todas)", min_value=0, value=0, step=50)
     default_expected_cols = 17 if mode == "Bancos" else 0
@@ -401,19 +391,29 @@ with st.sidebar:
 
 if mode == "Bancos":
     default_entities, default_aliases, default_normalizations = BANKS, BANK_ALIASES, BANK_NORMALIZATIONS
-    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1 ", "F2 ", "F4 ", "F3 ", "0"
-    t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "0", "0", "0"
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1 ", "F2 ", "F4 ", "F3 ", ""
+    t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "", "", ""
     t2_name, t2_tom, t2_esp, t2_ayu = "AWA Marca", "P1", "P1A.1\nP1A.2\nP1A.3", "P2.1\nP2.2\nP2.3"
 elif mode == "Conglomerados Financieros":
     default_entities, default_aliases, default_normalizations = CONGLOMERATES, CONGLOMERATE_ALIASES, CONGLOMERATE_NORMALIZATIONS
     def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1", "F2a", "F4", "F3", "F5"
-    t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "0", "0", "0"
+    t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "", "", ""
     t2_name, t2_tom, t2_esp, t2_ayu = "Conglomerados AWA", "P1 -", "P1A -", "P2-P2."
 else:
-    default_entities, default_aliases, default_normalizations = ["Entidad 1"], {"Entidad 1": ["entidad 1"]}, []
-    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "", "", "", "", ""
-    t1_name, t1_tom, t1_esp, t1_ayu = "Análisis 1", "0", "0", "0"
-    t2_name, t2_tom, t2_esp, t2_ayu = "Análisis 2", "0", "0", "0"
+    # Ajustado específicamente para tus datos de plataformas de streaming por defecto
+    default_entities = ["WIN PLAY", "PRIME VIDEO", "NETFLIX", "CLARO TV", "DISNEY+"]
+    default_aliases = {
+        "WIN PLAY": ["win play", "win", "winplay"],
+        "PRIME VIDEO": ["prime video", "amazon", "prime"],
+        "NETFLIX": ["netflix"],
+        "CLARO TV": ["claro tv", "claro"],
+        "DISNEY+": ["disney", "disney+", "disney plus"]
+    }
+    default_normalizations = []
+    # Demográficos configurados para coincidir con tu CSV
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F3", "F4", "F5", "F6", ""
+    t1_name, t1_tom, t1_esp, t1_ayu = "AWA Streaming", "F7_1", "F7_2\nF7_3", "F7_4\nF7_5"
+    t2_name, t2_tom, t2_esp, t2_ayu = "Análisis 2", "", "", ""
 
 with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
     entities_text = st.text_area("Entidades a evaluar, una por línea", "\n".join(default_entities), height=200)
@@ -469,7 +469,6 @@ st.subheader("3. Validación de Columnas")
 validation_rows = [{"Tipo": "Demográfico", "Campo": k, "Columna detectada": str(v)} for k, v in demo_cols.items()]
 
 for label, cfg in [("Análisis 1", cfg1), ("Análisis 2", cfg2)]:
-    # CORRECCIÓN: Mostrar validación si CUALQUIERA está activo
     if any(cfg[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"]):
         validation_rows.append({"Tipo": label, "Campo": "TOM", "Columna detectada": str(find_col(df, cfg["tom"]))})
         validation_rows.append({"Tipo": label, "Campo": "Espontáneo", "Columna detectada": ", ".join(find_cols(df, cfg["esp"]))})
@@ -484,4 +483,5 @@ if st.button("Generar Reporte Excel", type="primary"):
         st.success("¡Cálculo e indicadores generados exitosamente!")
         st.download_button(label="📥 Descargar Reporte de Awareness", data=result, file_name="Reporte_Awareness_Estructural.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     except Exception as exc:
+        st.error(f"Error: {exc}")
         st.exception(exc)
