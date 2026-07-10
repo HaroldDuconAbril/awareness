@@ -156,7 +156,7 @@ def prefixes_to_list(text: str) -> List[str]:
 
 def find_cols(df: pd.DataFrame, prefixes_text: str) -> List[str]:
     detected = []
-    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() not in ["0", ""]]
+    prefixes = [clean_col(p) for p in prefixes_to_list(prefixes_text) if p.strip() != "0"]
     if not prefixes: return detected
     for column in df.columns:
         col_norm = clean_col(column)
@@ -248,7 +248,7 @@ def tom_frequency_table(df: pd.DataFrame, tom_col: str, normalizations: List[Dic
             
             normalized_piece = apply_normalizations(piece, normalizations)
             v = str(normalized_piece).strip()
-            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco") or v.isupper()):
+            if not (v.startswith("Conglomerado") or v.startswith("Grupo") or v.startswith("Fundación") or v.startswith("Banco")):
                 v = v.title()  
                 
             all_mentions.append(v)
@@ -351,7 +351,7 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
     run_2 = any(cfg2[k].strip() not in ["0", ""] for k in ["tom", "esp", "ayu"])
     
     if not run_1 and not run_2: 
-        raise ValueError("Debe configurar al menos un análisis válido. Escriba los nombres de las columnas en la sección 2.")
+        raise ValueError("Debe configurar al menos un análisis válido (TOM, Espontáneo o Ayudado). Escriba los prefijos de columnas en la sección 2.")
     
     wb = Workbook()
     wb.remove(wb.active)
@@ -391,29 +391,24 @@ with st.sidebar:
 
 if mode == "Bancos":
     default_entities, default_aliases, default_normalizations = BANKS, BANK_ALIASES, BANK_NORMALIZATIONS
-    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1 ", "F2 ", "F4 ", "F3 ", ""
-    t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "", "", ""
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1 ", "F2 ", "F4 ", "F3 ", "0"
+    t1_name, t1_tom, t1_esp, t1_ayu = "AWA PUB", "0", "0", "0"
     t2_name, t2_tom, t2_esp, t2_ayu = "AWA Marca", "P1", "P1A.1\nP1A.2\nP1A.3", "P2.1\nP2.2\nP2.3"
 elif mode == "Conglomerados Financieros":
     default_entities, default_aliases, default_normalizations = CONGLOMERATES, CONGLOMERATE_ALIASES, CONGLOMERATE_NORMALIZATIONS
     def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F1", "F2a", "F4", "F3", "F5"
-    t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "", "", ""
+    t1_name, t1_tom, t1_esp, t1_ayu = "Desactivado", "0", "0", "0"
     t2_name, t2_tom, t2_esp, t2_ayu = "Conglomerados AWA", "P1 -", "P1A -", "P2-P2."
 else:
-    # Ajustado específicamente para tus datos de plataformas de streaming por defecto
-    default_entities = ["WIN PLAY", "PRIME VIDEO", "NETFLIX", "CLARO TV", "DISNEY+"]
+    default_entities = ["Marca 1", "Marca 2"]
     default_aliases = {
-        "WIN PLAY": ["win play", "win", "winplay"],
-        "PRIME VIDEO": ["prime video", "amazon", "prime"],
-        "NETFLIX": ["netflix"],
-        "CLARO TV": ["claro tv", "claro"],
-        "DISNEY+": ["disney", "disney+", "disney plus"]
+        "Marca 1": ["marca 1", "m1"],
+        "Marca 2": ["marca 2", "m2"]
     }
     default_normalizations = []
-    # Demográficos configurados para coincidir con tu CSV
-    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "F3", "F4", "F5", "F6", ""
-    t1_name, t1_tom, t1_esp, t1_ayu = "AWA Streaming", "F7_1", "F7_2\nF7_3", "F7_4\nF7_5"
-    t2_name, t2_tom, t2_esp, t2_ayu = "Análisis 2", "", "", ""
+    def_sexo, def_edad, def_depto, def_estrato, def_ingreso = "", "", "", "", ""
+    t1_name, t1_tom, t1_esp, t1_ayu = "Análisis 1", "0", "0", "0"
+    t2_name, t2_tom, t2_esp, t2_ayu = "Análisis 2", "0", "0", "0"
 
 with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Personalizado")):
     entities_text = st.text_area("Entidades a evaluar, una por línea", "\n".join(default_entities), height=200)
