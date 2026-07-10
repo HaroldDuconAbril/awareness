@@ -448,33 +448,41 @@ def inject_custom_ui(background_path):
         border-radius: 8px !important;
     }}
     
-    /* Asegurar que las capas internas y los textos chicos del Upload mantengan color oscuro */
+    /* Asegurar que TODAS las capas internas, botones y textos del Upload sean oscuros */
     .stTextArea [data-baseweb="base-input"] *, .stTextInput [data-baseweb="base-input"] *,
-    [data-testid="stFileUploadDropzone"] * {{
+    [data-testid="stFileUploadDropzone"] *,
+    [data-testid="stFileUploader"] section,
+    [data-testid="stFileUploader"] section * {{
         color: #0f172a !important;
         -webkit-text-fill-color: #0f172a !important;
     }}
 
-    /* Reparación del ícono SVG dentro del File Uploader */
+    /* Reparación del ícono SVG y contorno del botón dentro del File Uploader */
     [data-testid="stFileUploadDropzone"] svg {{
         fill: #0f172a !important;
         color: #0f172a !important;
     }}
+    
+    [data-testid="stFileUploadDropzone"] button {{
+        border: 1px solid rgba(15, 23, 42, 0.4) !important;
+        background-color: rgba(255, 255, 255, 0.5) !important;
+    }}
 
-    /* 7. Footer Fijo Profesional (Anclado globalmente sobreescribiendo el footer de Streamlit) */
+    /* 7. Footer Fijo Profesional */
+    /* Ocultar el footer nativo por completo para evitar conflictos */
     footer {{
-        visibility: hidden;
+        display: none !important;
     }}
     
-    footer:after {{
+    /* Anclar el nuevo footer al contenedor principal (.stApp) en lugar del tag footer */
+    .stApp::after {{
         content: 'Desarrollado por Research and Analitycs';
-        visibility: visible;
         display: flex;
         position: fixed;
         left: 0;
         bottom: 0;
         width: 100%;
-        background-color: rgba(15, 23, 42, 0.8);
+        background-color: rgba(15, 23, 42, 0.95);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         color: #f8fafc !important;
@@ -486,7 +494,7 @@ def inject_custom_ui(background_path):
         font-size: 14px;
         font-weight: 500;
         letter-spacing: 0.8px;
-        z-index: 9999;
+        z-index: 999999; /* Z-index alto para sobreponerse al sidebar */
         border-top: 1px solid rgba(255, 255, 255, 0.15);
     }}
     </style>
