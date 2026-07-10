@@ -11,6 +11,8 @@ Funciona para:
 import io
 import re
 import json
+import os
+import base64
 import unicodedata
 from typing import Dict, List, Optional, Tuple
 
@@ -361,7 +363,7 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
         if run_flag:
             output_df, indicators, _ = build_analysis(df, demo_cols, cfg, entities, aliases, normalizations, expected_raw_cols)
             write_main_sheet(wb, cfg["name"], output_df)
-            write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg["name"], entities))
+            write_sections_sheet(wb, f"Resumen {cfg['name']}", awareness_sections(indicators, df, demo_cols, cfg['name'], entities))
             write_sections_sheet(wb, f"Deptos {cfg['name']}", department_sections(indicators, df, demo_cols, entities))
             
             tom_col_name = find_col(df, cfg["tom"])
@@ -379,8 +381,93 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
 # ============================================================
 
 st.set_page_config(page_title="Awareness", layout="wide")
+
+# --- SISTEMA DE ESTILOS AVANZADOS (GLASSMORPHISM Y INTERFAZ) ---
+def inject_custom_ui(background_path):
+    # Carga de fondo en formato base64
+    bg_encoded = ""
+    if os.path.exists(background_path):
+        with open(background_path, "rb") as f:
+            bg_encoded = base64.b64encode(f.read()).decode()
+
+    glass_css = f"""
+    <style>
+    /* Fondo Dinámico Completo */
+    .stApp {{
+        background: {"url('data:image/jpeg;base64," + bg_encoded + "') no-repeat center center fixed" if bg_encoded else "#0f172a"};
+        background-size: cover;
+    }}
+    
+    /* Contenedor Estructural Frosted Glass */
+    .block-container {{
+        background: rgba(255, 255, 255, 0.12) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border-radius: 20px !important;
+        border: 1px solid rgba(255, 255, 255, 0.22) !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25) !important;
+        padding: 2.5rem !important;
+        margin-top: 1.5rem !important;
+        margin-bottom: 5rem !important;
+    }}
+
+    /* Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {{
+        background: rgba(255, 255, 255, 0.08) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }}
+
+    /* Optimización estética de tarjetas expandibles */
+    .stExpander {{
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.05) !important;
+    }}
+    
+    /* Ajustes en los inputs para preservar contraste */
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea {{
+        background-color: rgba(255, 255, 255, 0.8) !important;
+        color: #0f172a !important;
+        border-radius: 8px !important;
+    }}
+
+    /* Footer Fijo Profesional */
+    .custom-footer {{
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        color: #f8fafc;
+        text-align: center;
+        padding: 12px 0;
+        font-family: 'Instrument Sans', sans-serif, Arial;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.8px;
+        z-index: 9999;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+    }}
+    </style>
+    """
+    st.markdown(glass_css, unsafe_allow_html=True)
+
+# Ejecutar la inyección visual
+inject_custom_ui("Background.jpeg")
+
+# --- HEADER (LOGO E ICONOGRAFÍA DE INTERFAZ) ---
+logo_filename = "omnicom_media_group_latam_logo_Low_Res.jpg"
+if os.path.exists(logo_filename):
+    st.image(logo_filename, width=280)
+
 st.title("Generador flexible de Awareness / Recordación")
 
+# --- CONTROLADORES DE INTERFAZ ---
 with st.sidebar:
     st.header("Configuración general")
     mode = st.radio("Tipo de estudio", ["Bancos", "Conglomerados Financieros", "Personalizado"], index=2)
@@ -418,7 +505,9 @@ with st.expander("1. Entidades, alias y normalizaciones", expanded=(mode == "Per
 try:
     aliases, normalizations = json.loads(aliases_text), json.loads(normalizations_text)
 except Exception as exc:
-    st.error(f"Error en estructuras JSON: {exc}"); st.stop()
+    st.error(f"Error en estructuras JSON: {exc}")
+    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
+    st.stop()
 
 entities = [line.strip() for line in entities_text.splitlines() if line.strip()]
 
@@ -443,12 +532,15 @@ with st.expander("2. Preguntas y demográficos", expanded=True):
 
 if uploaded_file is None:
     st.info("Por favor carga el archivo de datos para iniciar.")
+    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
     st.stop()
 
 try:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, engine="openpyxl")
 except Exception as exc:
-    st.error(f"Error al leer el archivo: {exc}"); st.stop()
+    st.error(f"Error al leer el archivo: {exc}")
+    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
+    st.stop()
 
 if max_rows and max_rows > 0: df = df.head(int(max_rows)).copy()
 
@@ -480,3 +572,6 @@ if st.button("Generar Reporte Excel", type="primary"):
     except Exception as exc:
         st.error(f"Error: {exc}")
         st.exception(exc)
+
+# --- INYECCIÓN FINAL DEL FOOTER CORPORATIVO ---
+st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
