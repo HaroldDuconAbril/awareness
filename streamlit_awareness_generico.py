@@ -378,7 +378,7 @@ def build_excel_bytes(df, demo_cols, cfg1, cfg2, entities, aliases, normalizatio
 # INTERFAZ STREAMLIT
 # ============================================================
 
-st.set_page_config(page_title="Awareness Flexible", layout="wide")
+st.set_page_config(page_title="Awareness", layout="wide")
 st.title("Generador flexible de Awareness / Recordación")
 
 with st.sidebar:
