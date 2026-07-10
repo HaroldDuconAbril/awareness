@@ -398,8 +398,7 @@ def inject_custom_ui(background_path):
 
     glass_css = f"""
     <style>
-    /* 1. Forzar el color de texto blanco SOLO en textos de lectura general. 
-       Se quitó 'span' para evitar dañar los inputs y text areas. */
+    /* 1. Forzar el color de texto blanco SOLO en textos de lectura general. */
     .stApp, div[data-testid="stMarkdownContainer"] p, h1, h2, h3, h4, h5, h6, label {{
         color: #ffffff !important;
     }}
@@ -439,23 +438,38 @@ def inject_custom_ui(background_path):
         box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.05) !important;
     }}
     
-    /* 6. CORRECCIÓN DE INPUTS: Forzar fondo claro y texto oscuro en inputs y text areas */
+    /* 6. CORRECCIÓN DE INPUTS Y UPLOAD: Forzar fondo claro y texto oscuro */
     .stTextInput input, .stTextArea textarea, 
-    div[data-baseweb="base-input"] input, div[data-baseweb="base-input"] textarea {{
+    div[data-baseweb="base-input"] input, div[data-baseweb="base-input"] textarea,
+    [data-testid="stFileUploadDropzone"] {{
         background-color: rgba(255, 255, 255, 0.95) !important;
         color: #0f172a !important;
         -webkit-text-fill-color: #0f172a !important;
         border-radius: 8px !important;
     }}
     
-    /* Asegurar que las capas internas de Streamlit en los inputs mantengan el color oscuro */
-    .stTextArea [data-baseweb="base-input"] *, .stTextInput [data-baseweb="base-input"] * {{
+    /* Asegurar que las capas internas y los textos chicos del Upload mantengan color oscuro */
+    .stTextArea [data-baseweb="base-input"] *, .stTextInput [data-baseweb="base-input"] *,
+    [data-testid="stFileUploadDropzone"] * {{
         color: #0f172a !important;
         -webkit-text-fill-color: #0f172a !important;
     }}
 
-    /* 7. Footer Fijo Profesional */
-    .custom-footer {{
+    /* Reparación del ícono SVG dentro del File Uploader */
+    [data-testid="stFileUploadDropzone"] svg {{
+        fill: #0f172a !important;
+        color: #0f172a !important;
+    }}
+
+    /* 7. Footer Fijo Profesional (Anclado globalmente sobreescribiendo el footer de Streamlit) */
+    footer {{
+        visibility: hidden;
+    }}
+    
+    footer:after {{
+        content: 'Desarrollado por Research and Analitycs';
+        visibility: visible;
+        display: flex;
         position: fixed;
         left: 0;
         bottom: 0;
@@ -463,8 +477,10 @@ def inject_custom_ui(background_path):
         background-color: rgba(15, 23, 42, 0.8);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        color: #f8fafc;
-        text-align: center;
+        color: #f8fafc !important;
+        -webkit-text-fill-color: #f8fafc !important;
+        justify-content: center;
+        align-items: center;
         padding: 12px 0;
         font-family: 'Instrument Sans', sans-serif, Arial;
         font-size: 14px;
@@ -521,7 +537,6 @@ try:
     aliases, normalizations = json.loads(aliases_text), json.loads(normalizations_text)
 except Exception as exc:
     st.error(f"Error en estructuras JSON: {exc}")
-    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
     st.stop()
 
 entities = [line.strip() for line in entities_text.splitlines() if line.strip()]
@@ -547,14 +562,12 @@ with st.expander("2. Preguntas y demográficos", expanded=True):
 
 if uploaded_file is None:
     st.info("Por favor carga el archivo de datos para iniciar.")
-    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
     st.stop()
 
 try:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, engine="openpyxl")
 except Exception as exc:
     st.error(f"Error al leer el archivo: {exc}")
-    st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
     st.stop()
 
 if max_rows and max_rows > 0: df = df.head(int(max_rows)).copy()
@@ -587,6 +600,3 @@ if st.button("Generar Reporte Excel", type="primary"):
     except Exception as exc:
         st.error(f"Error: {exc}")
         st.exception(exc)
-
-# --- INYECCIÓN FINAL DEL FOOTER CORPORATIVO ---
-st.markdown('<div class="custom-footer">Desarrollado por Research and Analitycs</div>', unsafe_allow_html=True)
